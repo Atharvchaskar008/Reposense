@@ -1,4 +1,6 @@
 .env
+.env.example
+.env.local
 repos/*
 !repos/.gitkeep
 outputs/*
@@ -10,3 +12,4 @@ __pycache__/
 venv/
 *.egg-info/
 .DS_Store
+.jac/
