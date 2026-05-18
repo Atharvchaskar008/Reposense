@@ -445,6 +445,16 @@ body {
 
 .muted { color: var(--muted); font-size: 0.82rem; }
 
+.rec-list {
+  margin: 0.35rem 0 0;
+  padding-left: 1.1rem;
+  font-size: 0.82rem;
+  color: var(--text);
+  line-height: 1.5;
+}
+
+.rec-list li { margin-bottom: 0.25rem; }
+
 .query-bar {
   position: fixed;
   bottom: 0;

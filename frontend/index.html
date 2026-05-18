@@ -11,31 +11,19 @@
 
   <header class="top-bar">
     <div class="brand">
-      <span class="brand-icon">◈</span>
+      <span class="brand-icon">&#9672;</span>
       <div>
         <h1>RepoSense</h1>
-        <p>Graph-native security mission control · any public GitHub repo</p>
+        <p>Autonomous Graph-Native Engineering Mission Control</p>
       </div>
     </div>
     <div class="controls">
-      <label class="url-field">
-        <span>GitHub repository</span>
-        <input
-          type="url"
-          id="repoInput"
-          placeholder="https://github.com/owner/repository"
-          autocomplete="url"
-          spellcheck="false"
-        />
-      </label>
+      <input type="text" id="repoInput" placeholder="https://github.com/owner/repo" />
       <select id="executionMode" aria-label="Execution mode">
         <option value="autonomous">Autonomous</option>
         <option value="approval">Approval Required</option>
       </select>
-      <button id="analyzeBtn" class="btn-primary" type="button">
-        <span class="btn-label">Start Analysis</span>
-        <span class="btn-spinner" hidden aria-hidden="true"></span>
-      </button>
+      <button id="analyzeBtn" class="btn-primary">Start Analysis</button>
     </div>
   </header>
 
@@ -53,25 +41,29 @@
     <section class="panel intel-panel">
       <h2>Repository Intelligence</h2>
       <div class="intel-grid">
-        <div class="intel-item"><span>Repo Type</span><strong id="intelType">—</strong></div>
-        <div class="intel-item"><span>Architecture</span><strong id="intelArch">—</strong></div>
-        <div class="intel-item"><span>Technologies</span><strong id="intelTech">—</strong></div>
-        <div class="intel-item"><span>Complexity</span><strong id="intelComplexity">—</strong></div>
-        <div class="intel-item"><span>Risk Level</span><strong id="intelRisk" class="risk-badge">—</strong></div>
-        <div class="intel-item full"><span>Purpose</span><p id="intelPurpose">Paste any GitHub URL above to begin.</p></div>
+        <div class="intel-item"><span>Repository</span><strong id="intelRepo">-</strong></div>
+        <div class="intel-item"><span>Stars / Forks / Issues</span><strong id="intelStars">-</strong></div>
+        <div class="intel-item"><span>Repo Type</span><strong id="intelType">-</strong></div>
+        <div class="intel-item"><span>Architecture</span><strong id="intelArch">-</strong></div>
+        <div class="intel-item"><span>Languages</span><strong id="intelTech">-</strong></div>
+        <div class="intel-item"><span>Complexity</span><strong id="intelComplexity">-</strong></div>
+        <div class="intel-item"><span>Code Quality</span><strong id="intelQuality">-</strong></div>
+        <div class="intel-item"><span>Risk Level</span><strong id="intelRisk" class="risk-badge">-</strong></div>
+        <div class="intel-item full"><span>AI Summary</span><p id="intelPurpose">Awaiting autonomous execution...</p></div>
+        <div class="intel-item full"><span>Recommendations</span><ul id="intelRecs" class="rec-list"><li class="muted">-</li></ul></div>
       </div>
     </section>
 
     <section class="panel approval-panel">
       <h2>Agent Decision Console</h2>
       <div id="approvalConsole" class="approval-console">
-        <p class="muted">Approval mode lets you accept or reject FixAgent patches before they apply.</p>
+        <p class="muted">Supervisor approvals appear when agents request critical actions.</p>
       </div>
     </section>
 
     <section class="panel graph-panel">
-      <h2>System Graph <span class="graph-hint">red = security issues</span></h2>
-      <svg id="graphSvg" class="graph-svg" viewBox="0 0 640 360" aria-label="Force-directed dependency graph"></svg>
+      <h2>System Graph</h2>
+      <svg id="graphSvg" class="graph-svg" viewBox="0 0 600 320" aria-label="Dependency graph"></svg>
     </section>
 
     <section class="panel fixes-panel">
@@ -81,8 +73,8 @@
   </main>
 
   <footer class="query-bar">
-    <input type="text" id="queryInput" placeholder="Ask RepoSense… (Why is this vulnerable? What depends on auth?)" />
-    <button id="queryBtn" class="btn-ghost" type="button">Ask</button>
+    <input type="text" id="queryInput" placeholder="Ask RepoSense... (e.g. Why is this vulnerable?)" />
+    <button id="queryBtn" class="btn-ghost">Ask</button>
     <div id="queryAnswer" class="query-answer"></div>
   </footer>
 
