@@ -1,12 +1,10 @@
 """Repository intelligence summaries — heuristics with optional LLM."""
 
-import json
-import os
 import re
 from pathlib import Path
 
 from config import LOW_COST_MODE
-from utils.llm_client import complete
+from utils.llm_client import generate as llm_generate
 
 STACK_SIGNALS = {
     "flask": ("Flask Backend API", "backend", ["Flask", "Python"]),
@@ -122,8 +120,8 @@ def generate_summary(
         f"Files: {len(files)}\nFindings: {len(findings)}\n"
         f"Technologies: {', '.join(stack['technologies'])}"
     )
-    result = complete(prompt, max_tokens=400, force_llm=True)
-    if result.get("source") != "heuristic":
-        base["purpose"] = result["text"].strip()
-        base["source"] = result["source"]
+    llm_text, provider = llm_generate(prompt)
+    if llm_text and provider != "heuristic":
+        base["purpose"] = llm_text.strip()
+        base["source"] = provider
     return base
