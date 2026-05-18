@@ -1,7 +1,9 @@
-# RepoSense — local + JacCloud dependencies
-Flask>=3.0.0
-GitPython>=3.1.40
+flask>=3.0
+flask-cors>=4.0
+requests>=2.31
+python-dotenv>=1.0
+gitpython>=3.1
 networkx>=3.0
-python-dotenv>=1.0.0
-openai>=1.30.0
-requests>=2.31.0
+google-generativeai>=0.8
+openai>=1.0
+jaclang>=0.15
