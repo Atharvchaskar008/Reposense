@@ -1,7 +1,9 @@
 [project]
 name = "reposense"
 version = "0.1.0"
-description = "Autonomous multi-agent codebase intelligence system"
+description = "Token-optimized GitHub security scanner for JacHacks 2026"
 
 [build]
 entry = "main.jac"
+
+# byllm reads OPENAI_API_KEY + OPENAI_API_BASE (set from FEATHERLESS_API_KEY at runtime)
