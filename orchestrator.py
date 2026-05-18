@@ -12,6 +12,8 @@ from utils.llm_fixer import generate_fix
 from utils.parser import scan_repo
 from utils.repo_cloner import clone_repo
 from utils.security_scanner import scan_repository
+from utils.llm_client import answer_with_session
+from utils.repo_cloner import validate_github_url
 from utils.summarizer import generate_summary
 
 _sessions: dict[str, dict] = {}
@@ -41,6 +43,9 @@ def get_session(session_id: str) -> dict | None:
 
 
 def create_analysis(repo_url: str, execution_mode: str = "autonomous") -> str:
+    ok, msg = validate_github_url(repo_url)
+    if not ok:
+        raise ValueError(msg)
     session_id = str(uuid.uuid4())[:8]
     _sessions[session_id] = {
         "id": session_id,
@@ -97,36 +102,7 @@ def run_analysis(session_id: str) -> None:
         session["files"] = files
         _log(session, f"Discovered {len(files)} Python modules")
 
-        _set_agent(session, "DependencyAgent", "RUNNING", "Building dependency graph")
-        _log(session, "Building dependency graph...")
-        graph_data = build_dependency_graph(files, clone["path"])
-        session["graph"] = {"nodes": graph_data["nodes"], "edges": graph_data["edges"]}
-        session["_nx_graph"] = graph_data["graph"]
-        _log(
-            session,
-            f"Graph: {graph_data['metrics']['node_count']} nodes, "
-            f"{graph_data['metrics']['edge_count']} edges",
-        )
-        _set_agent(session, "DependencyAgent", "COMPLETED", "Dependency graph ready")
-
-        # Build graph memory nodes (JSON representation)
-        session["graph_memory"] = {
-            "repo": {
-                "repo_name": clone["slug"],
-                "repo_url": url,
-                "status": "analyzing",
-            },
-            "files": [
-                {
-                    "path": f["path"],
-                    "imports": f.get("imports", []),
-                    "risk_score": 0,
-                }
-                for f in files[:100]
-            ],
-        }
-
-        # SecurityAgent
+        # SecurityAgent (before graph so nodes can highlight issues)
         _set_agent(session, "SecurityAgent", "RUNNING", "Heuristic vulnerability scan")
         _log(session, "SecurityAgent activated")
         findings = scan_repository(clone["path"])
@@ -138,6 +114,41 @@ def run_analysis(session_id: str) -> None:
                 "warn",
             )
         _set_agent(session, "SecurityAgent", "COMPLETED", f"{len(findings)} findings")
+
+        _set_agent(session, "DependencyAgent", "RUNNING", "Building dependency graph")
+        _log(session, "Building dependency graph...")
+        graph_data = build_dependency_graph(files, clone["path"], findings=findings)
+        session["graph"] = {"nodes": graph_data["nodes"], "edges": graph_data["edges"]}
+        session["_nx_graph"] = graph_data["graph"]
+        _log(
+            session,
+            f"Graph: {graph_data['metrics']['node_count']} nodes, "
+            f"{graph_data['metrics']['edge_count']} edges",
+        )
+        _set_agent(session, "DependencyAgent", "COMPLETED", "Dependency graph ready")
+
+        session["graph_memory"] = {
+            "repo": {
+                "repo_name": clone["slug"],
+                "repo_url": url,
+                "status": "analyzing",
+            },
+            "files": [
+                {
+                    "path": f["path"],
+                    "imports": f.get("imports", []),
+                    "risk_score": next(
+                        (
+                            n.get("risk_score", 0)
+                            for n in graph_data["nodes"]
+                            if n.get("path") == f["path"]
+                        ),
+                        0,
+                    ),
+                }
+                for f in files[:100]
+            ],
+        }
 
         # ImpactAgent
         _set_agent(session, "ImpactAgent", "RUNNING", "Blast radius analysis")
@@ -250,30 +261,18 @@ def resolve_approval(session_id: str, approval_id: str, approved: bool, reason: 
 def answer_query(session_id: str, query: str) -> str:
     session = _sessions.get(session_id)
     if not session:
-        return "No active analysis session."
+        return "No active analysis session. Start an analysis first."
 
-    q = query.lower()
-    if "vulnerable" in q or "vulnerability" in q:
-        if not session["findings"]:
-            return "No vulnerabilities detected by heuristic scan."
-        top = session["findings"][0]
-        return (
-            f"{top['title']} in {top['file']} line {top['line']}: "
-            f"{top['recommendation']}"
-        )
-    if "depend" in q and "auth" in q:
-        impact = session.get("impact", {})
-        affected = impact.get("human_readable", [])
-        return (
-            f"Modules depending on auth chain: {', '.join(affected) or 'none detected'}."
-        )
-    if "risk" in q:
-        high = [f for f in session["findings"] if f["severity"] == "high"]
-        return f"Highest risk: {high[0]['file']} — {high[0]['title']}" if high else "Risk level is low."
-    if "architecture" in q or "what is" in q:
-        s = session.get("summary", {})
-        return s.get("purpose", "Run an analysis first.")
-    return (
-        "Try: 'Why is this vulnerable?', 'What depends on auth.py?', "
-        "'Show highest risk modules'"
-    )
+    query = (query or "").strip()
+    if not query:
+        return "Please enter a question about the scanned repository."
+
+    if session.get("status") not in ("completed", "running"):
+        return "Analysis is not ready yet — wait for agents to finish."
+
+    result = answer_with_session(query, session)
+    text = result.get("text", "")
+    source = result.get("source", "unknown")
+    if source != "heuristic":
+        return f"{text}\n\n_(via {source})_"
+    return text
