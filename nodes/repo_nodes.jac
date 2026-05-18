@@ -1,34 +1,30 @@
-# Graph-native repository memory nodes
+# RepoSense graph nodes — LLM only on llm_rating and summary
 
 node RepoNode {
-    has repo_name: str = "",
-        repo_url: str = "",
-        status: str = "pending",
-        risk_level: str = "unknown",
-        summary: str = "";
+    has url: str = "",
+        owner: str = "",
+        repo_name: str = "",
+        language: str = "",
+        stars: int = 0;
 }
 
-node FileNode {
-    has path: str = "",
-        imports: list = [],
-        vulnerabilities: list = [],
-        risk_score: float = 0.0;
-}
-
-node AgentNode {
+node DependencyNode {
     has name: str = "",
-        state: str = "IDLE",
-        last_action: str = "";
+        ecosystem: str = "",
+        cve_ids: list = [],
+        severity: str = "",
+        llm_rating: str = "";
 }
 
-edge imports_edge {
-    has module_name: str = "";
+node SecretNode {
+    has file_path: str = "",
+        secret_type: str = "",
+        risk_explanation: str = "";
 }
 
-edge depends_on {
-    has strength: float = 1.0;
-}
-
-edge discovered_by {
-    has timestamp: str = "";
+node ReportNode {
+    has risk_score: int = 0,
+        summary: str = "",
+        recommendations: list = [],
+        total_issues: int = 0;
 }

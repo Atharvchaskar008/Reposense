@@ -3,6 +3,7 @@ repos/*
 !repos/.gitkeep
 outputs/*
 !outputs/.gitkeep
+.jac/
 __pycache__/
 *.pyc
 .venv/
