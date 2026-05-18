@@ -1,19 +1,9 @@
-"""LLM-powered fix suggestions for FixAgent."""
+"""LLM-powered unified diff fixes for FixAgent."""
 
-import json
-import os
-import urllib.request
+from __future__ import annotations
 
-from config import (
-    ANTHROPIC_API_KEY,
-    GEMINI_API_KEY,
-    LOW_COST_MODE,
-    MODEL_CONFIG,
-    OLLAMA_BASE_URL,
-    OPENAI_API_KEY,
-    USE_LOCAL_MODELS,
-    LOCAL_MODEL,
-)
+from config import LOW_COST_MODE
+from utils.llm_client import complete
 
 
 def _heuristic_fix(finding: dict) -> dict:
@@ -28,60 +18,47 @@ def _heuristic_fix(finding: dict) -> dict:
     }
 
 
-def _ollama_fix(finding: dict, snippet: str) -> dict | None:
-    prompt = (
-        f"Generate a minimal secure code fix as a unified diff.\n"
-        f"Issue: {finding.get('title')}\nFile: {finding.get('file')}\n"
-        f"Line: {finding.get('line')}\nCode: {snippet}\n"
-        f"Recommendation: {finding.get('recommendation')}"
-    )
-    try:
-        body = json.dumps(
-            {
-                "model": LOCAL_MODEL,
-                "prompt": prompt,
-                "stream": False,
-            }
-        ).encode()
-        req = urllib.request.Request(
-            f"{OLLAMA_BASE_URL}/api/generate",
-            data=body,
-            headers={"Content-Type": "application/json"},
-        )
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            data = json.loads(resp.read().decode())
-        text = data.get("response", "")
-        if text:
-            return {
-                "file": finding.get("file"),
-                "line": finding.get("line"),
-                "title": finding.get("title"),
-                "diff": text,
-                "reasoning": "Generated via local Ollama model.",
-                "source": f"ollama:{LOCAL_MODEL}",
-            }
-    except Exception:
-        return None
-    return None
-
-
 def generate_fix(finding: dict) -> dict:
-    if LOW_COST_MODE and not USE_LOCAL_MODELS:
+    """Generate a unified diff patch for a security finding."""
+    if LOW_COST_MODE:
         return _heuristic_fix(finding)
 
-    if USE_LOCAL_MODELS:
-        fix = _ollama_fix(finding, finding.get("snippet", ""))
-        if fix:
-            return fix
-        return _heuristic_fix(finding)
+    snippet = (finding.get("snippet") or "")[:800]
+    prompt = (
+        f"Generate a minimal secure fix as a valid unified diff (---/+++/@@ format only).\n"
+        f"Issue: {finding.get('title')}\n"
+        f"File: {finding.get('file')}\n"
+        f"Line: {finding.get('line')}\n"
+        f"Recommendation: {finding.get('recommendation')}\n"
+        f"Code snippet:\n{snippet}\n"
+        "Output ONLY the diff block, no markdown fences."
+    )
 
-    # API-based fix — use heuristics unless keys present
-    model = MODEL_CONFIG.get("fix_agent", "claude-sonnet")
-    if model.startswith("claude") and ANTHROPIC_API_KEY:
-        pass  # placeholder for Anthropic integration
-    elif "gpt" in model and OPENAI_API_KEY:
-        pass
-    elif GEMINI_API_KEY:
-        pass
+    result = complete(
+        prompt,
+        system=(
+            "You are a security engineer. Output a concise unified diff that fixes the vulnerability. "
+            "Do not include secrets or placeholder API keys."
+        ),
+        max_tokens=600,
+        temperature=0.1,
+        force_llm=True,
+    )
+
+    diff = result.get("text", "").strip()
+    if diff.startswith("```"):
+        diff = "\n".join(
+            line for line in diff.splitlines() if not line.strip().startswith("```")
+        ).strip()
+
+    if diff and ("---" in diff or "+++" in diff):
+        return {
+            "file": finding.get("file"),
+            "line": finding.get("line"),
+            "title": finding.get("title"),
+            "diff": diff,
+            "reasoning": f"LLM-generated patch via {result.get('source', 'unknown')}.",
+            "source": result.get("source", "llm"),
+        }
 
     return _heuristic_fix(finding)
