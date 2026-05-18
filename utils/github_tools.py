@@ -315,32 +315,16 @@ def save_report_json(path: str, report: dict[str, Any]) -> None:
 
 
 def featherless_complete(prompt: str, max_tokens: int = 500) -> str:
-    """Single OpenAI-compatible call (used for LLM call 2 only — secrets)."""
-    import os
-
-    api_key = os.getenv("FEATHERLESS_API_KEY", "")
-    if not api_key:
-        return "Unable to assess: FEATHERLESS_API_KEY not set. Rotate any exposed credentials immediately."
-
+    """LLM call for Jac scanner secret risk (delegates to unified client)."""
     try:
-        from openai import OpenAI
-    except ImportError:
-        return "OpenAI SDK not installed. pip install openai"
+        from utils.llm_client import complete
 
-    client = OpenAI(
-        base_url="https://api.featherless.ai/v1",
-        api_key=api_key,
-    )
-    resp = client.chat.completions.create(
-        model="deepseek-ai/DeepSeek-V3-0324",
-        messages=[
-            {
-                "role": "system",
-                "content": "You are a security analyst. Be concise. Never repeat secret values.",
-            },
-            {"role": "user", "content": prompt[:2000]},
-        ],
-        max_tokens=max_tokens,
-        temperature=0.2,
-    )
-    return (resp.choices[0].message.content or "").strip()
+        result = complete(
+            prompt,
+            system="You are a security analyst. Be concise. Never repeat secret values.",
+            max_tokens=max_tokens,
+            force_llm=True,
+        )
+        return result.get("text", "")
+    except ImportError:
+        return "Rotate any exposed credentials immediately."

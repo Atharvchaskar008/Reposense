@@ -10,8 +10,8 @@ const AGENTS = [
 ];
 
 let sessionId = null;
-let pollTimer = null;
-let seenLogs = 0;
+let eventSource = null;
+let graphSim = null;
 
 const $ = (id) => document.getElementById(id);
 
@@ -40,13 +40,20 @@ function stateClass(state) {
   return (state || "IDLE").toLowerCase().replace(/\s+/g, "_");
 }
 
+function setLoading(loading) {
+  const btn = $("analyzeBtn");
+  btn.disabled = loading;
+  btn.classList.toggle("is-loading", loading);
+  btn.querySelector(".btn-spinner").hidden = !loading;
+}
+
 function updateAgents(agents) {
   if (!agents) return;
   Object.entries(agents).forEach(([name, data]) => {
     const card = document.getElementById(`agent-${name}`);
     if (!card) return;
     const st = data.state || "IDLE";
-    card.className = `agent-card ${["RUNNING", "THINKING"].includes(st) ? "running" : ""}`;
+    card.className = `agent-card ${["RUNNING", "THINKING", "REQUESTING_APPROVAL"].includes(st) ? "running" : ""}`;
     card.querySelector("[data-state]").textContent = st;
     card.querySelector("[data-action]").textContent = data.last_action || "—";
     const dot = card.querySelector("[data-dot]");
@@ -58,7 +65,8 @@ function appendLog(entry) {
   const stream = $("logStream");
   const line = document.createElement("div");
   line.className = `log-line ${entry.level || "info"}`;
-  line.textContent = `> ${entry.message}`;
+  const ts = entry.ts ? new Date(entry.ts).toLocaleTimeString() : "";
+  line.textContent = ts ? `> [${ts}] ${entry.message}` : `> ${entry.message}`;
   stream.appendChild(line);
   stream.scrollTop = stream.scrollHeight;
 }
@@ -79,11 +87,9 @@ function renderApprovals(approvals) {
   const box = $("approvalConsole");
   const pending = (approvals || []).filter((a) => a.status === "pending");
   if (!pending.length) {
-    if (!approvals?.length) {
-      box.innerHTML = `<p class="muted">Agents will request supervisor approval when critical actions are detected.</p>`;
-    } else {
-      box.innerHTML = `<p class="muted">All approval requests resolved.</p>`;
-    }
+    box.innerHTML = approvals?.length
+      ? `<p class="muted">All approval requests resolved.</p>`
+      : `<p class="muted">Approval mode lets you accept or reject FixAgent patches before they apply.</p>`;
     return;
   }
   box.innerHTML = "";
@@ -109,7 +115,9 @@ function renderApprovals(approvals) {
 }
 
 function escapeHtml(s) {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;");
 }
 
 async function handleApproval(btn) {
@@ -129,7 +137,6 @@ async function handleApproval(btn) {
       approved: act === "approve",
     }),
   });
-  pollSession();
 }
 
 function renderFixes(fixes) {
@@ -142,92 +149,162 @@ function renderFixes(fixes) {
     .map(
       (f) => `
     <div class="fix-card">
-      <strong>${f.title || "Suggested fix"}</strong>
-      <p class="muted">${f.file}:${f.line}</p>
+      <strong>${escapeHtml(f.title || "Suggested fix")}</strong>
+      <p class="muted">${escapeHtml(f.file || "")}:${f.line || ""}</p>
       <pre>${escapeHtml(f.diff || "")}</pre>
-      <p class="muted">${f.reasoning || ""}</p>
+      <p class="muted">${escapeHtml(f.reasoning || "")}</p>
     </div>`
     )
     .join("");
 }
 
-function renderGraph(graph) {
+/** Vanilla force-directed layout */
+function startForceGraph(graph) {
   const svg = $("graphSvg");
-  const nodes = graph?.nodes || [];
-  const edges = graph?.edges || [];
+  const nodes = (graph?.nodes || []).slice(0, 32);
+  const edges = (graph?.edges || []).slice(0, 60);
+
   if (!nodes.length) {
-    svg.innerHTML = `<text x="20" y="40" fill="#64748b" font-size="12">Graph populates after dependency analysis</text>`;
+    svg.innerHTML = `<text x="24" y="48" fill="#64748b" font-size="13">Graph populates after dependency analysis</text>`;
     return;
   }
 
-  const w = 600;
-  const h = 320;
+  const w = 640;
+  const h = 360;
   const cx = w / 2;
   const cy = h / 2;
-  const r = Math.min(w, h) * 0.38;
-  const positions = {};
 
-  nodes.slice(0, 24).forEach((n, i) => {
-    const angle = (i / Math.min(nodes.length, 24)) * Math.PI * 2;
-    positions[n.id] = {
-      x: cx + r * Math.cos(angle),
-      y: cy + r * Math.sin(angle),
-    };
-  });
+  const simNodes = nodes.map((n, i) => ({
+    id: n.id,
+    label: (n.id || "").split(".").pop().slice(0, 12),
+    issue: n.has_issue || (n.risk_score || 0) > 0,
+    x: cx + Math.cos((i / nodes.length) * Math.PI * 2) * 120,
+    y: cy + Math.sin((i / nodes.length) * Math.PI * 2) * 120,
+    vx: 0,
+    vy: 0,
+  }));
 
-  let edgeSvg = "";
-  edges.slice(0, 40).forEach((e) => {
-    const a = positions[e.source];
-    const b = positions[e.target];
-    if (a && b) {
-      edgeSvg += `<line class="graph-edge" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" />`;
+  const nodeIndex = Object.fromEntries(simNodes.map((n, i) => [n.id, i]));
+  const simEdges = edges
+    .filter((e) => nodeIndex[e.source] != null && nodeIndex[e.target] != null)
+    .map((e) => ({ source: nodeIndex[e.source], target: nodeIndex[e.target] }));
+
+  if (graphSim) cancelAnimationFrame(graphSim);
+
+  const tick = () => {
+    // repulsion
+    for (let i = 0; i < simNodes.length; i++) {
+      for (let j = i + 1; j < simNodes.length; j++) {
+        const a = simNodes[i];
+        const b = simNodes[j];
+        let dx = b.x - a.x;
+        let dy = b.y - a.y;
+        let dist = Math.sqrt(dx * dx + dy * dy) || 1;
+        const force = 4200 / (dist * dist);
+        dx = (dx / dist) * force;
+        dy = (dy / dist) * force;
+        a.vx -= dx;
+        a.vy -= dy;
+        b.vx += dx;
+        b.vy += dy;
+      }
     }
-  });
+    // springs
+    simEdges.forEach((e) => {
+      const a = simNodes[e.source];
+      const b = simNodes[e.target];
+      let dx = b.x - a.x;
+      let dy = b.y - a.y;
+      let dist = Math.sqrt(dx * dx + dy * dy) || 1;
+      const force = (dist - 70) * 0.04;
+      dx = (dx / dist) * force;
+      dy = (dy / dist) * force;
+      a.vx += dx;
+      a.vy += dy;
+      b.vx -= dx;
+      b.vy -= dy;
+    });
+    // center gravity
+    simNodes.forEach((n) => {
+      n.vx += (cx - n.x) * 0.002;
+      n.vy += (cy - n.y) * 0.002;
+      n.vx *= 0.86;
+      n.vy *= 0.86;
+      n.x += n.vx;
+      n.y += n.vy;
+      n.x = Math.max(24, Math.min(w - 24, n.x));
+      n.y = Math.max(24, Math.min(h - 24, n.y));
+    });
 
-  let nodeSvg = "";
-  Object.entries(positions).forEach(([id, p]) => {
-    const label = id.split(".").pop().slice(0, 10);
-    nodeSvg += `
-      <circle class="graph-node" cx="${p.x}" cy="${p.y}" r="14" />
-      <text class="graph-label" x="${p.x}" y="${p.y + 24}" text-anchor="middle">${label}</text>
-    `;
-  });
+    let edgeSvg = "";
+    simEdges.forEach((e) => {
+      const a = simNodes[e.source];
+      const b = simNodes[e.target];
+      edgeSvg += `<line class="graph-edge" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" />`;
+    });
 
-  svg.innerHTML = edgeSvg + nodeSvg;
+    let nodeSvg = "";
+    simNodes.forEach((n) => {
+      const cls = n.issue ? "graph-node issue" : "graph-node";
+      nodeSvg += `
+        <circle class="${cls}" cx="${n.x}" cy="${n.y}" r="16" />
+        <text class="graph-label" x="${n.x}" y="${n.y + 28}" text-anchor="middle">${escapeHtml(n.label)}</text>
+      `;
+    });
+
+    svg.innerHTML = edgeSvg + nodeSvg;
+    graphSim = requestAnimationFrame(tick);
+  };
+
+  tick();
 }
 
-async function pollSession() {
-  if (!sessionId) return;
-  try {
-    const res = await fetch(`${API}/session/${sessionId}`);
-    const data = await res.json();
+function applyState(data) {
+  if (!data) return;
+  updateAgents(data.agents);
+  updateIntel(data.summary);
+  renderApprovals(data.approvals);
+  renderFixes(data.fixes);
+  startForceGraph(data.graph);
 
-    const logs = data.logs || [];
-    while (seenLogs < logs.length) {
-      appendLog(logs[seenLogs]);
-      seenLogs++;
+  if (data.status === "completed" || data.status === "failed") {
+    setLoading(false);
+    if (eventSource) {
+      eventSource.close();
+      eventSource = null;
     }
-
-    updateAgents(data.agents);
-    updateIntel(data.summary);
-    renderApprovals(data.approvals);
-    renderFixes(data.fixes);
-    renderGraph(data.graph);
-
-    if (data.status === "completed" || data.status === "failed") {
-      clearInterval(pollTimer);
-      $("analyzeBtn").disabled = false;
-      appendLog({
-        message:
-          data.status === "completed"
-            ? "Mission complete — all agents standing down"
-            : "Mission failed — check logs",
-        level: data.status === "completed" ? "info" : "error",
-      });
-    }
-  } catch (e) {
-    console.error(e);
+    appendLog({
+      message:
+        data.status === "completed"
+          ? "Mission complete — all agents standing down"
+          : "Mission failed — check logs above",
+      level: data.status === "completed" ? "info" : "error",
+    });
   }
+}
+
+function connectSSE() {
+  if (eventSource) eventSource.close();
+  eventSource = new EventSource(`${API}/stream/${sessionId}`);
+
+  eventSource.onmessage = (ev) => {
+    try {
+      const msg = JSON.parse(ev.data);
+      if (msg.type === "log") appendLog(msg.data);
+      if (msg.type === "state") applyState(msg.data);
+      if (msg.error) appendLog({ message: msg.error, level: "error" });
+    } catch (e) {
+      console.warn("SSE parse error", e);
+    }
+  };
+
+  eventSource.onerror = () => {
+    appendLog({ message: "SSE reconnecting…", level: "warn" });
+    eventSource?.close();
+    setTimeout(() => {
+      if (sessionId) connectSSE();
+    }, 1500);
+  };
 }
 
 async function startAnalysis() {
@@ -235,16 +312,22 @@ async function startAnalysis() {
   const mode = $("executionMode").value;
 
   if (!repoUrl) {
-    alert("Paste a GitHub repository URL.");
+    appendLog({ message: "Enter a GitHub repository URL.", level: "warn" });
+    $("repoInput").focus();
     return;
   }
 
-  $("analyzeBtn").disabled = true;
-  $("logStream").innerHTML = "";
-  seenLogs = 0;
-  initAgents();
+  if (!/^https?:\/\/(www\.)?github\.com\/[\w.-]+\/[\w.-]+\/?$/i.test(repoUrl.replace(/\.git$/, ""))) {
+    appendLog({ message: "Invalid URL — use https://github.com/owner/repo", level: "error" });
+    return;
+  }
 
-  appendLog({ message: "Initializing RepoSense mission control...", level: "info" });
+  setLoading(true);
+  $("logStream").innerHTML = "";
+  initAgents();
+  if (graphSim) cancelAnimationFrame(graphSim);
+
+  appendLog({ message: "Initializing RepoSense mission control…", level: "info" });
 
   try {
     const res = await fetch(`${API}/analyze`, {
@@ -253,77 +336,18 @@ async function startAnalysis() {
       body: JSON.stringify({ repo_url: repoUrl, execution_mode: mode }),
     });
 
-    if (!res.ok) throw new Error("Backend unavailable");
-
-    const { session_id } = await res.json();
-    sessionId = session_id;
-    appendLog({ message: `Session ${sessionId} — agents deploying`, level: "info" });
-
-    pollTimer = setInterval(pollSession, 600);
-    pollSession();
-  } catch (err) {
-    appendLog({
-      message: "Cannot reach API — run: python server.py",
-      level: "error",
-    });
-    simulateDemo(repoUrl, mode);
-    $("analyzeBtn").disabled = false;
-  }
-}
-
-function simulateDemo(repoUrl, mode) {
-  const steps = [
-    { agent: "DependencyAgent", state: "RUNNING", msg: "Cloning repository..." },
-    { agent: "DependencyAgent", state: "THINKING", msg: "Parsing Python files..." },
-    { agent: "DependencyAgent", state: "COMPLETED", msg: "Dependency graph built" },
-    { agent: "SecurityAgent", state: "RUNNING", msg: "Heuristic scan active" },
-    { agent: "SecurityAgent", state: "COMPLETED", msg: "Vulnerability detected in config.py" },
-    { agent: "ImpactAgent", state: "COMPLETED", msg: "Blast radius computed" },
-    { agent: "ExplanationAgent", state: "COMPLETED", msg: "Repository summary ready" },
-    {
-      agent: "FixAgent",
-      state: mode === "approval" ? "REQUESTING_APPROVAL" : "COMPLETED",
-      msg: "Patch recommendation generated",
-    },
-    { agent: "MonitorAgent", state: "COMPLETED", msg: "Orchestration complete" },
-  ];
-
-  const agents = {};
-  AGENTS.forEach((a) => {
-    agents[a] = { name: a, state: "IDLE", last_action: "" };
-  });
-
-  let i = 0;
-  const timer = setInterval(() => {
-    if (i >= steps.length) {
-      clearInterval(timer);
-      updateIntel({
-        repo_type: "Flask Backend API",
-        architecture: "Modular service-oriented backend",
-        technologies: ["Python", "Flask"],
-        complexity: "Medium",
-        risk_level: "Moderate",
-        purpose: `Demo mode for ${repoUrl} — start python server.py for live analysis.`,
-      });
-      renderGraph({
-        nodes: [
-          { id: "app.main" },
-          { id: "app.auth" },
-          { id: "app.api" },
-        ],
-        edges: [
-          { source: "app.main", target: "app.auth" },
-          { source: "app.api", target: "app.auth" },
-        ],
-      });
-      return;
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data.error || `HTTP ${res.status}`);
     }
-    const s = steps[i];
-    agents[s.agent] = { name: s.agent, state: s.state, last_action: s.msg };
-    appendLog({ message: s.msg, level: "info" });
-    updateAgents(agents);
-    i++;
-  }, 700);
+
+    sessionId = data.session_id;
+    appendLog({ message: `Session ${sessionId} — agents deploying`, level: "info" });
+    connectSSE();
+  } catch (err) {
+    appendLog({ message: err.message || "Cannot reach API — run: python server.py", level: "error" });
+    setLoading(false);
+  }
 }
 
 async function runQuery() {
@@ -333,6 +357,8 @@ async function runQuery() {
     $("queryAnswer").textContent = "Start an analysis first.";
     return;
   }
+  $("queryAnswer").textContent = "Thinking…";
+  $("queryAnswer").classList.add("loading");
   try {
     const res = await fetch(`${API}/query`, {
       method: "POST",
@@ -342,7 +368,9 @@ async function runQuery() {
     const data = await res.json();
     $("queryAnswer").textContent = data.answer || "No answer.";
   } catch {
-    $("queryAnswer").textContent = "Query requires active backend session.";
+    $("queryAnswer").textContent = "Query failed — check backend connection.";
+  } finally {
+    $("queryAnswer").classList.remove("loading");
   }
 }
 

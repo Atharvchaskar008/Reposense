@@ -5,13 +5,8 @@ import os
 import re
 from pathlib import Path
 
-from config import (
-    ANTHROPIC_API_KEY,
-    GEMINI_API_KEY,
-    LOW_COST_MODE,
-    MODEL_CONFIG,
-    OPENAI_API_KEY,
-)
+from config import LOW_COST_MODE
+from utils.llm_client import complete
 
 STACK_SIGNALS = {
     "flask": ("Flask Backend API", "backend", ["Flask", "Python"]),
@@ -108,30 +103,6 @@ def heuristic_summary(repo_name: str, stack: dict, findings: list, metrics: dict
     }
 
 
-def _call_gemini(prompt: str) -> str | None:
-    if not GEMINI_API_KEY:
-        return None
-    try:
-        import urllib.request
-
-        url = (
-            "https://generativelanguage.googleapis.com/v1beta/models/"
-            "gemini-2.0-flash:generateContent?key="
-            + GEMINI_API_KEY
-        )
-        body = json.dumps(
-            {"contents": [{"parts": [{"text": prompt}]}]}
-        ).encode()
-        req = urllib.request.Request(
-            url, data=body, headers={"Content-Type": "application/json"}
-        )
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            data = json.loads(resp.read().decode())
-        return data["candidates"][0]["content"]["parts"][0]["text"]
-    except Exception:
-        return None
-
-
 def generate_summary(
     repo_name: str,
     repo_path: str,
@@ -142,10 +113,7 @@ def generate_summary(
     stack = _detect_stack(repo_path, files)
     base = heuristic_summary(repo_name, stack, findings, metrics)
 
-    if LOW_COST_MODE or not GEMINI_API_KEY:
-        return base
-
-    if MODEL_CONFIG.get("explanation_agent") != "gemini-flash":
+    if LOW_COST_MODE:
         return base
 
     prompt = (
@@ -154,8 +122,8 @@ def generate_summary(
         f"Files: {len(files)}\nFindings: {len(findings)}\n"
         f"Technologies: {', '.join(stack['technologies'])}"
     )
-    llm_text = _call_gemini(prompt)
-    if llm_text:
-        base["purpose"] = llm_text.strip()
-        base["source"] = "gemini-flash"
+    result = complete(prompt, max_tokens=400, force_llm=True)
+    if result.get("source") != "heuristic":
+        base["purpose"] = result["text"].strip()
+        base["source"] = result["source"]
     return base

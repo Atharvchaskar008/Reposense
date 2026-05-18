@@ -14,16 +14,28 @@
       <span class="brand-icon">◈</span>
       <div>
         <h1>RepoSense</h1>
-        <p>Autonomous Graph-Native Engineering Mission Control</p>
+        <p>Graph-native security mission control · any public GitHub repo</p>
       </div>
     </div>
     <div class="controls">
-      <input type="text" id="repoInput" placeholder="https://github.com/owner/repo" />
+      <label class="url-field">
+        <span>GitHub repository</span>
+        <input
+          type="url"
+          id="repoInput"
+          placeholder="https://github.com/owner/repository"
+          autocomplete="url"
+          spellcheck="false"
+        />
+      </label>
       <select id="executionMode" aria-label="Execution mode">
         <option value="autonomous">Autonomous</option>
         <option value="approval">Approval Required</option>
       </select>
-      <button id="analyzeBtn" class="btn-primary">Start Analysis</button>
+      <button id="analyzeBtn" class="btn-primary" type="button">
+        <span class="btn-label">Start Analysis</span>
+        <span class="btn-spinner" hidden aria-hidden="true"></span>
+      </button>
     </div>
   </header>
 
@@ -46,20 +58,20 @@
         <div class="intel-item"><span>Technologies</span><strong id="intelTech">—</strong></div>
         <div class="intel-item"><span>Complexity</span><strong id="intelComplexity">—</strong></div>
         <div class="intel-item"><span>Risk Level</span><strong id="intelRisk" class="risk-badge">—</strong></div>
-        <div class="intel-item full"><span>Purpose</span><p id="intelPurpose">Awaiting analysis...</p></div>
+        <div class="intel-item full"><span>Purpose</span><p id="intelPurpose">Paste any GitHub URL above to begin.</p></div>
       </div>
     </section>
 
     <section class="panel approval-panel">
       <h2>Agent Decision Console</h2>
       <div id="approvalConsole" class="approval-console">
-        <p class="muted">Agents will request supervisor approval when critical actions are detected.</p>
+        <p class="muted">Approval mode lets you accept or reject FixAgent patches before they apply.</p>
       </div>
     </section>
 
     <section class="panel graph-panel">
-      <h2>System Graph</h2>
-      <svg id="graphSvg" class="graph-svg" viewBox="0 0 600 320" aria-label="Dependency graph"></svg>
+      <h2>System Graph <span class="graph-hint">red = security issues</span></h2>
+      <svg id="graphSvg" class="graph-svg" viewBox="0 0 640 360" aria-label="Force-directed dependency graph"></svg>
     </section>
 
     <section class="panel fixes-panel">
@@ -69,8 +81,8 @@
   </main>
 
   <footer class="query-bar">
-    <input type="text" id="queryInput" placeholder="Ask RepoSense... (e.g. Why is this vulnerable?)" />
-    <button id="queryBtn" class="btn-ghost">Ask</button>
+    <input type="text" id="queryInput" placeholder="Ask RepoSense… (Why is this vulnerable? What depends on auth?)" />
+    <button id="queryBtn" class="btn-ghost" type="button">Ask</button>
     <div id="queryAnswer" class="query-answer"></div>
   </footer>
 

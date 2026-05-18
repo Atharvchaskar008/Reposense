@@ -1,11 +1,14 @@
-"""RepoSense HTTP API — mission control backend."""
+"""RepoSense HTTP API — Flask mission control with SSE streaming."""
+
+from __future__ import annotations
 
 import json
 import threading
 import time
-from http.server import BaseHTTPRequestHandler, HTTPServer
-from urllib.parse import parse_qs, urlparse
 
+from flask import Flask, Response, jsonify, request, send_from_directory
+
+from config import FRONTEND_DIR, HOST, PORT, RATE_LIMIT_MAX, RATE_LIMIT_WINDOW
 from orchestrator import (
     answer_query,
     create_analysis,
@@ -13,170 +16,167 @@ from orchestrator import (
     resolve_approval,
     run_analysis,
 )
+from utils.rate_limiter import allow_request
 
-PORT = 8000
+app = Flask(__name__, static_folder=None)
 
 
-class RepoSenseHandler(BaseHTTPRequestHandler):
-    def _serve_static(self, rel_path: str, content_type: str) -> None:
-        from pathlib import Path
+def _client_ip() -> str:
+    forwarded = request.headers.get("X-Forwarded-For", "")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.remote_addr or "127.0.0.1"
 
-        file_path = Path(__file__).parent / rel_path
-        if not file_path.exists():
-            self._json(404, {"error": "not found"})
-            return
-        data = file_path.read_bytes()
-        self.send_response(200)
-        self.send_header("Content-Type", content_type)
-        self._cors()
-        self.send_header("Content-Length", str(len(data)))
-        self.end_headers()
-        self.wfile.write(data)
 
-    def _cors(self) -> None:
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+def _rate_limit() -> tuple[Response | None, str]:
+    ok, msg = allow_request(
+        _client_ip(),
+        max_requests=RATE_LIMIT_MAX,
+        window_seconds=RATE_LIMIT_WINDOW,
+    )
+    if ok:
+        return None, ""
+    return jsonify({"error": msg}), msg
 
-    def _json(self, code: int, payload: dict) -> None:
-        body = json.dumps(payload).encode()
-        self.send_response(code)
-        self.send_header("Content-Type", "application/json")
-        self._cors()
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
 
-    def do_OPTIONS(self) -> None:
-        self.send_response(204)
-        self._cors()
-        self.end_headers()
+@app.after_request
+def cors_headers(response):
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+    return response
 
-    def do_GET(self) -> None:
-        parsed = urlparse(self.path)
-        path = parsed.path
 
-        if path in ("/", "/index.html"):
-            self._serve_static("frontend/index.html", "text/html")
-            return
-        if path.endswith(".css"):
-            self._serve_static(f"frontend{path}", "text/css")
-            return
-        if path.endswith(".js"):
-            self._serve_static(f"frontend{path}", "application/javascript")
-            return
+@app.route("/")
+@app.route("/index.html")
+def index():
+    return send_from_directory(FRONTEND_DIR, "index.html")
 
-        if path == "/health":
-            self._json(200, {"status": "ok", "service": "RepoSense"})
-            return
 
-        if path.startswith("/session/"):
-            sid = path.split("/")[-1]
-            session = get_session(sid)
-            if not session:
-                self._json(404, {"error": "session not found"})
-                return
-            export = {k: v for k, v in session.items() if not k.startswith("_")}
-            self._json(200, export)
-            return
+@app.route("/style.css")
+def style_css():
+    return send_from_directory(FRONTEND_DIR, "style.css")
 
-        if path.startswith("/stream/"):
-            sid = path.split("/")[-1]
-            self._sse_stream(sid)
-            return
 
-        self._json(404, {"error": "not found"})
+@app.route("/app.js")
+def app_js():
+    return send_from_directory(FRONTEND_DIR, "app.js")
 
-    def _sse_stream(self, session_id: str) -> None:
-        self.send_response(200)
-        self.send_header("Content-Type", "text/event-stream")
-        self.send_header("Cache-Control", "no-cache")
-        self.send_header("Connection", "keep-alive")
-        self._cors()
-        self.end_headers()
 
+@app.route("/health")
+def health():
+    return jsonify({"status": "ok", "service": "RepoSense"})
+
+
+@app.route("/session/<session_id>")
+def session_state(session_id: str):
+    session = get_session(session_id)
+    if not session:
+        return jsonify({"error": "session not found"}), 404
+    export = {k: v for k, v in session.items() if not k.startswith("_")}
+    return jsonify(export)
+
+
+@app.route("/stream/<session_id>")
+def stream(session_id: str):
+    def generate():
         last_count = 0
-        for _ in range(120):
+        for _ in range(240):
             session = get_session(session_id)
             if not session:
-                self.wfile.write(b"data: {\"error\":\"no session\"}\n\n")
+                yield f"data: {json.dumps({'type': 'error', 'data': 'no session'})}\n\n"
                 break
+
             logs = session.get("logs", [])
             if len(logs) > last_count:
                 for entry in logs[last_count:]:
-                    payload = json.dumps({"type": "log", "data": entry})
-                    self.wfile.write(f"data: {payload}\n\n".encode())
+                    yield f"data: {json.dumps({'type': 'log', 'data': entry})}\n\n"
                 last_count = len(logs)
-            payload = json.dumps(
-                {
-                    "type": "state",
-                    "data": {
-                        "agents": session.get("agents"),
-                        "status": session.get("status"),
-                        "summary": session.get("summary"),
-                        "graph": session.get("graph"),
-                        "findings": session.get("findings"),
-                        "fixes": session.get("fixes"),
-                        "approvals": session.get("approvals"),
-                        "impact": session.get("impact"),
-                    },
-                }
-            )
-            self.wfile.write(f"data: {payload}\n\n".encode())
-            self.wfile.flush()
+
+            payload = {
+                "type": "state",
+                "data": {
+                    "agents": session.get("agents"),
+                    "status": session.get("status"),
+                    "summary": session.get("summary"),
+                    "graph": session.get("graph"),
+                    "findings": session.get("findings"),
+                    "fixes": session.get("fixes"),
+                    "approvals": session.get("approvals"),
+                    "impact": session.get("impact"),
+                },
+            }
+            yield f"data: {json.dumps(payload)}\n\n"
+
             if session.get("status") in ("completed", "failed"):
                 break
             time.sleep(0.5)
 
-    def do_POST(self) -> None:
-        length = int(self.headers.get("Content-Length", 0))
-        raw = self.rfile.read(length) if length else b"{}"
-        try:
-            body = json.loads(raw.decode() or "{}")
-        except json.JSONDecodeError:
-            self._json(400, {"error": "invalid json"})
-            return
+    return Response(generate(), mimetype="text/event-stream")
 
-        path = urlparse(self.path).path
 
-        if path == "/analyze":
-            repo_url = body.get("repo_url", "")
-            mode = body.get("execution_mode", "autonomous")
-            if not repo_url:
-                self._json(400, {"error": "repo_url required"})
-                return
-            sid = create_analysis(repo_url, mode)
-            threading.Thread(target=run_analysis, args=(sid,), daemon=True).start()
-            self._json(202, {"session_id": sid, "status": "started"})
-            return
+@app.route("/analyze", methods=["POST", "OPTIONS"])
+def analyze():
+    if request.method == "OPTIONS":
+        return "", 204
 
-        if path == "/approve":
-            sid = body.get("session_id")
-            aid = body.get("approval_id")
-            approved = body.get("approved", False)
-            reason = body.get("reason", "")
-            result = resolve_approval(sid, aid, approved, reason)
-            self._json(200, result)
-            return
+    blocked, _ = _rate_limit()
+    if blocked:
+        return blocked, 429
 
-        if path == "/query":
-            sid = body.get("session_id")
-            query = body.get("query", "")
-            answer = answer_query(sid, query)
-            self._json(200, {"answer": answer})
-            return
+    body = request.get_json(silent=True) or {}
+    repo_url = (body.get("repo_url") or "").strip()
+    mode = body.get("execution_mode", "autonomous")
 
-        self._json(404, {"error": "not found"})
+    if not repo_url:
+        return jsonify({"error": "repo_url required"}), 400
 
-    def log_message(self, fmt: str, *args) -> None:
-        pass
+    try:
+        sid = create_analysis(repo_url, mode)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    threading.Thread(target=run_analysis, args=(sid,), daemon=True).start()
+    return jsonify({"session_id": sid, "status": "started"}), 202
+
+
+@app.route("/approve", methods=["POST", "OPTIONS"])
+def approve():
+    if request.method == "OPTIONS":
+        return "", 204
+
+    blocked, _ = _rate_limit()
+    if blocked:
+        return blocked, 429
+
+    body = request.get_json(silent=True) or {}
+    result = resolve_approval(
+        body.get("session_id"),
+        body.get("approval_id"),
+        bool(body.get("approved", False)),
+        body.get("reason", ""),
+    )
+    return jsonify(result)
+
+
+@app.route("/query", methods=["POST", "OPTIONS"])
+def query():
+    if request.method == "OPTIONS":
+        return "", 204
+
+    blocked, _ = _rate_limit()
+    if blocked:
+        return blocked, 429
+
+    body = request.get_json(silent=True) or {}
+    answer = answer_query(body.get("session_id"), body.get("query", ""))
+    return jsonify({"answer": answer})
 
 
 def main() -> None:
-    server = HTTPServer(("localhost", PORT), RepoSenseHandler)
-    print(f"RepoSense API running at http://localhost:{PORT}")
-    print("Endpoints: POST /analyze, GET /session/:id, GET /stream/:id")
-    server.serve_forever()
+    print(f"RepoSense API → http://{HOST}:{PORT}")
+    print("Endpoints: POST /analyze, GET /session/:id, GET /stream/:id, POST /query")
+    app.run(host=HOST, port=PORT, threaded=True)
 
 
 if __name__ == "__main__":
