@@ -1,4 +1,4 @@
-# Task and approval graph nodes
+# Task graph — agents discover work via traversal
 
 node TaskNode {
     has task_type: str = "",
@@ -12,6 +12,9 @@ node ApprovalNode {
     has question: str = "",
         approved: bool = False,
         requested_by: str = "",
+        risk_level: str = "medium",
+        action_type: str = "",
+        status: str = "pending",
         recommendation: str = "";
 }
 

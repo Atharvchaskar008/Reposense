@@ -1,4 +1,4 @@
-# RepoSense — Jac orchestrator entry (delegates to mission.jac)
+# RepoSense — Jac mission entry (graph-native orchestration)
 
 import os;
 import from utils.mission_entry { execute_mission }

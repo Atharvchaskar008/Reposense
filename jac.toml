@@ -1,38 +1,7 @@
-# RepoSense — Jac project config (local CLI + JacCloud deployment)
-# Docs: https://docs.jaseci.org/reference/config/
-
 [project]
 name = "reposense"
-version = "1.0.0"
-description = "Graph-native multi-agent GitHub security scanner for JacHacks 2026"
-entry-point = "main.jac"
+version = "0.2.0"
+description = "Graph-native autonomous engineering intelligence platform"
 
-# ── Local API server (jac serve) ─────────────────────────────────────────
-[serve]
-port = 8000
-host = "0.0.0.0"
-# reload = true   # enable during local dev
-
-# ── JacCloud / Kubernetes (jac start main.jac --scale) ───────────────────
-# Prerequisites: jac install, kubectl context, .env with FEATHERLESS_API_KEY
-#
-# Deploy:
-#   jac install
-#   jac start main.jac --scale
-#
-# Production image build:
-#   jac start main.jac --scale --build
-#
-# Set secrets on JacCloud dashboard (not in git):
-#   FEATHERLESS_API_KEY, GEMINI_API_KEY, OPENAI_API_KEY
-#   EXECUTION_MODE, LOW_COST_MODE, GIT_CLONE_TIMEOUT
-
-[dependencies]
-pypi = [
-  "Flask>=3.0.0",
-  "GitPython>=3.1.40",
-  "networkx>=3.0",
-  "python-dotenv>=1.0.0",
-  "openai>=1.30.0",
-  "requests>=2.31.0",
-]
+[build]
+entry = "mission.jac"
