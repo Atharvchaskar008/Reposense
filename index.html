@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RepoSense</title>
+
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <div class="container">
+
+    <!-- Header -->
+    <header class="hero">
+      <h1>RepoSense</h1>
+      <p>Autonomous Multi-Agent Codebase Analyzer</p>
+    </header>
+
+    <!-- Input Section -->
+    <section class="input-section">
+      <input
+        type="text"
+        id="repoInput"
+        placeholder="Paste GitHub repository URL..."
+      />
+
+      <button id="analyzeBtn">
+        Analyze Repository
+      </button>
+    </section>
+
+    <!-- Status -->
+    <section class="status-section">
+      <h2>Agent Activity</h2>
+
+      <div class="logs" id="logs">
+        <div class="log">System ready...</div>
+      </div>
+    </section>
+
+    <!-- Results -->
+    <section class="results-section">
+
+      <div class="card">
+        <h3>Dependency Graph</h3>
+        <div id="dependencyResults">
+          Waiting for analysis...
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Security Findings</h3>
+        <div id="securityResults">
+          Waiting for analysis...
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Suggested Fixes</h3>
+        <div id="fixResults">
+          Waiting for analysis...
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

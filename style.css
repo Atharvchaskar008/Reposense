@@ -1,0 +1,123 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  background-color: #0f172a;
+  color: #f8fafc;
+  font-family: Arial, Helvetica, sans-serif;
+  min-height: 100vh;
+}
+
+.container {
+  width: 90%;
+  max-width: 1200px;
+  margin: auto;
+  padding: 40px 0;
+}
+
+/* Hero */
+
+.hero {
+  text-align: center;
+  margin-bottom: 40px;
+}
+
+.hero h1 {
+  font-size: 3rem;
+  margin-bottom: 10px;
+}
+
+.hero p {
+  color: #94a3b8;
+  font-size: 1.1rem;
+}
+
+/* Input */
+
+.input-section {
+  display: flex;
+  gap: 15px;
+  margin-bottom: 30px;
+}
+
+.input-section input {
+  flex: 1;
+  padding: 16px;
+  border-radius: 10px;
+  border: none;
+  background: #1e293b;
+  color: white;
+  font-size: 1rem;
+}
+
+.input-section input:focus {
+  outline: 2px solid #38bdf8;
+}
+
+.input-section button {
+  padding: 16px 24px;
+  border: none;
+  border-radius: 10px;
+  background: #38bdf8;
+  color: #0f172a;
+  font-weight: bold;
+  cursor: pointer;
+  transition: 0.3s;
+}
+
+.input-section button:hover {
+  background: #0ea5e9;
+}
+
+/* Logs */
+
+.status-section {
+  margin-bottom: 30px;
+}
+
+.status-section h2 {
+  margin-bottom: 15px;
+}
+
+.logs {
+  background: #111827;
+  border-radius: 12px;
+  padding: 20px;
+  height: 250px;
+  overflow-y: auto;
+  border: 1px solid #1e293b;
+}
+
+.log {
+  margin-bottom: 12px;
+  color: #22c55e;
+  font-family: monospace;
+}
+
+/* Results */
+
+.results-section {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 20px;
+}
+
+.card {
+  background: #111827;
+  padding: 20px;
+  border-radius: 12px;
+  border: 1px solid #1e293b;
+}
+
+.card h3 {
+  margin-bottom: 15px;
+  color: #38bdf8;
+}
+
+.card div {
+  color: #cbd5e1;
+  line-height: 1.6;
+}
