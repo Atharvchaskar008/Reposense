@@ -3,69 +3,76 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>RepoSense</title>
-
+  <title>RepoSense — AI Mission Control</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
+  <div class="scanline" aria-hidden="true"></div>
 
-  <div class="container">
+  <header class="top-bar">
+    <div class="brand">
+      <span class="brand-icon">◈</span>
+      <div>
+        <h1>RepoSense</h1>
+        <p>Autonomous Graph-Native Engineering Mission Control</p>
+      </div>
+    </div>
+    <div class="controls">
+      <input type="text" id="repoInput" placeholder="https://github.com/owner/repo" />
+      <select id="executionMode" aria-label="Execution mode">
+        <option value="autonomous">Autonomous</option>
+        <option value="approval">Approval Required</option>
+      </select>
+      <button id="analyzeBtn" class="btn-primary">Start Analysis</button>
+    </div>
+  </header>
 
-    <!-- Header -->
-    <header class="hero">
-      <h1>RepoSense</h1>
-      <p>Autonomous Multi-Agent Codebase Analyzer</p>
-    </header>
-
-    <!-- Input Section -->
-    <section class="input-section">
-      <input
-        type="text"
-        id="repoInput"
-        placeholder="Paste GitHub repository URL..."
-      />
-
-      <button id="analyzeBtn">
-        Analyze Repository
-      </button>
+  <main class="grid">
+    <section class="panel agents-panel">
+      <h2>Active Agents</h2>
+      <div id="agentsGrid" class="agents-grid"></div>
     </section>
 
-    <!-- Status -->
-    <section class="status-section">
-      <h2>Agent Activity</h2>
+    <section class="panel stream-panel">
+      <h2>Live Execution Stream</h2>
+      <div id="logStream" class="log-stream" role="log" aria-live="polite"></div>
+    </section>
 
-      <div class="logs" id="logs">
-        <div class="log">System ready...</div>
+    <section class="panel intel-panel">
+      <h2>Repository Intelligence</h2>
+      <div class="intel-grid">
+        <div class="intel-item"><span>Repo Type</span><strong id="intelType">—</strong></div>
+        <div class="intel-item"><span>Architecture</span><strong id="intelArch">—</strong></div>
+        <div class="intel-item"><span>Technologies</span><strong id="intelTech">—</strong></div>
+        <div class="intel-item"><span>Complexity</span><strong id="intelComplexity">—</strong></div>
+        <div class="intel-item"><span>Risk Level</span><strong id="intelRisk" class="risk-badge">—</strong></div>
+        <div class="intel-item full"><span>Purpose</span><p id="intelPurpose">Awaiting analysis...</p></div>
       </div>
     </section>
 
-    <!-- Results -->
-    <section class="results-section">
-
-      <div class="card">
-        <h3>Dependency Graph</h3>
-        <div id="dependencyResults">
-          Waiting for analysis...
-        </div>
+    <section class="panel approval-panel">
+      <h2>Agent Decision Console</h2>
+      <div id="approvalConsole" class="approval-console">
+        <p class="muted">Agents will request supervisor approval when critical actions are detected.</p>
       </div>
-
-      <div class="card">
-        <h3>Security Findings</h3>
-        <div id="securityResults">
-          Waiting for analysis...
-        </div>
-      </div>
-
-      <div class="card">
-        <h3>Suggested Fixes</h3>
-        <div id="fixResults">
-          Waiting for analysis...
-        </div>
-      </div>
-
     </section>
 
-  </div>
+    <section class="panel graph-panel">
+      <h2>System Graph</h2>
+      <svg id="graphSvg" class="graph-svg" viewBox="0 0 600 320" aria-label="Dependency graph"></svg>
+    </section>
+
+    <section class="panel fixes-panel">
+      <h2>Suggested Patches</h2>
+      <div id="fixesList" class="fixes-list"></div>
+    </section>
+  </main>
+
+  <footer class="query-bar">
+    <input type="text" id="queryInput" placeholder="Ask RepoSense... (e.g. Why is this vulnerable?)" />
+    <button id="queryBtn" class="btn-ghost">Ask</button>
+    <div id="queryAnswer" class="query-answer"></div>
+  </footer>
 
   <script src="app.js"></script>
 </body>
