@@ -1,0 +1,7 @@
+[project]
+name = "reposense"
+version = "0.1.0"
+description = "Autonomous multi-agent codebase intelligence system"
+
+[build]
+entry = "main.jac"
