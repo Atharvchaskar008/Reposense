@@ -1,174 +1,108 @@
 # RepoSense
 
-**Graph-native multi-agent GitHub security mission control** — built with the [Jac ecosystem](https://jac-lang.org/) for JacHacks 2026.
+Live AI-powered GitHub repository intelligence platform.
 
-RepoSense accepts **any public GitHub repository URL**, clones it dynamically, builds a dependency graph, runs security heuristics, generates LLM-powered fixes and Q&A, and streams live agent activity to a supervisor console.
+## Run locally (Windows)
 
-## Features
+### 1. Prerequisites
 
-| Capability | Description |
-|------------|-------------|
-| **Dynamic repos** | Paste any `https://github.com/owner/repo` — no hardcoded targets |
-| **Primary LLM** | [Featherless AI](https://featherless.ai/) (OpenAI-compatible, DeepSeek-V3) |
-| **Fallback chain** | Featherless → Gemini → OpenAI → heuristic |
-| **Live SSE** | Real-time execution stream via Server-Sent Events |
-| **Force graph** | Vanilla JS physics layout — **red nodes = security issues** |
-| **Approval mode** | Supervisor approves/rejects FixAgent patches |
-| **Smart Q&A** | Session-aware answers using scan context (not raw files) |
-| **Jac CLI scanner** | Token-optimized `jac run main.jac <url>` (max 3 LLM calls) |
+- **Python 3.10+** — [python.org](https://www.python.org/downloads/) (enable **Add Python to PATH**)
+- **Git** — [git-scm.com](https://git-scm.com/download/win)
 
-## Architecture
+Verify in PowerShell:
 
-```
-Supervisor (browser)
-       │
-       ▼
- Flask API (server.py) — SSE, rate limit, static UI
-       │
-       ├── orchestrator.py — agent pipeline
-       ├── utils/llm_client.py — unified LLM
-       └── Jac walkers (agents/*.jac) — graph-native scan
+```powershell
+python --version
+git --version
 ```
 
-## Quick Start (Local)
+### 2. Go to the project folder
 
-### Prerequisites
+```powershell
+cd "C:\Users\athar\OneDrive\Desktop\Jachacks hackathon"
+```
 
-- Python 3.10+
-- Git on PATH
-- [Jac](https://jac-lang.org/) (optional, for CLI scanner)
+### 3. Virtual environment (recommended)
 
-### 1. Install
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+```
 
-```bash
-git clone https://github.com/Atharvchaskar008/Reposense.git
-cd Reposense
+If activation fails:
+
+```powershell
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+```
+
+### 4. Install dependencies
+
+```powershell
 pip install -r requirements.txt
 ```
 
-### 2. Configure Featherless API key
+### 5. Create `.env`
 
-```bash
-cp .env.example .env
-```
-
-Edit `.env` and set:
+Create **`.env`** in the project root (same folder as `server.py`). This file is **not** committed to Git.
 
 ```env
-FEATHERLESS_API_KEY=your_featherless_key_here
+GITHUB_TOKEN=your_github_token
+GEMINI_API_KEY=your_gemini_key
+OPENAI_API_KEY=your_openai_key
+
+PORT=8000
 LOW_COST_MODE=false
 ```
 
-Get a key from [Featherless](https://featherless.ai/). The client uses:
+### 6. Start the server
 
-- `FEATHERLESS_BASE_URL=https://api.featherless.ai/v1`
-- `FEATHERLESS_MODEL=deepseek-ai/DeepSeek-V3-0324`
+**Option A — script:**
 
-### 3. Run mission control
+```powershell
+.\start.ps1
+```
 
-```bash
+**Option B — manual:**
+
+```powershell
 python server.py
 ```
 
-Open **http://localhost:8000**
+### 7. Open the app
 
-1. Paste a GitHub URL (e.g. `https://github.com/pallets/flask`)
-2. Choose **Autonomous** or **Approval Required**
-3. Watch agents, graph, patches, and ask questions in the Q&A bar
+Go to **http://localhost:8000** in your browser.
 
-### 4. Run Jac CLI scanner (token-optimized)
+Paste a public repo URL (e.g. `https://github.com/pallets/flask`) and click **Start Analysis**.
 
-```bash
-jac run main.jac https://github.com/psf/requests
-```
+> Use **http://localhost:8000**, not the HTML file directly. Live logs need the backend.
 
-Report written to `outputs/report.json`.
+### Troubleshooting
 
-## JacCloud Deployment
+| Problem | Fix |
+|--------|-----|
+| `python` not found | Use `py -3.11 server.py` or reinstall Python with PATH |
+| `git` not found | Install Git, restart terminal |
+| Port in use | Set `PORT=8001` in `.env` |
+| Missing modules | `pip install -r requirements.txt` |
+| No live updates | Must use `http://localhost:8000` |
+| Clone fails | Repo must be public; test: `git clone https://github.com/pallets/flask` |
 
-### Prepare
+Health: **http://localhost:8000/health**
 
-```bash
-jac install
-cp .env.example .env   # configure keys locally first
-```
+## JacCloud
 
-### Deploy with scale (Kubernetes)
+Set `GITHUB_TOKEN`, `GEMINI_API_KEY`, `OPENAI_API_KEY`, `PORT` — start with `python server.py`.
 
-```bash
-jac start main.jac --scale
-```
+## Docs
 
-Production image build:
+- [JAC_ARCHITECTURE.md](JAC_ARCHITECTURE.md)
+- [AGENT_INTERACTION_FLOW.md](AGENT_INTERACTION_FLOW.md)
 
-```bash
-jac start main.jac --scale --build
-```
-
-### Environment variables on JacCloud dashboard
-
-Set these in the JacCloud project settings (never commit real keys):
-
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `FEATHERLESS_API_KEY` | Yes (recommended) | Primary LLM |
-| `FEATHERLESS_BASE_URL` | No | Default `https://api.featherless.ai/v1` |
-| `FEATHERLESS_MODEL` | No | Default `deepseek-ai/DeepSeek-V3-0324` |
-| `GEMINI_API_KEY` | No | Fallback LLM |
-| `OPENAI_API_KEY` | No | Fallback LLM |
-| `LOW_COST_MODE` | No | `false` for full LLM features |
-| `GIT_CLONE_TIMEOUT` | No | Clone timeout seconds (default 180) |
-| `RATE_LIMIT_MAX` | No | Max POST requests per IP per window (default 5) |
-
-### Local Jac serve (API from walkers)
-
-```bash
-jac serve main.jac --host 0.0.0.0 --port 8000
-```
-
-Public walker `ScanRepo` is exposed for cloud HTTP triggers.
-
-## API Endpoints
+## API
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/analyze` | Start analysis `{ repo_url, execution_mode }` |
-| `GET` | `/session/:id` | Full session state |
-| `GET` | `/stream/:id` | SSE log + state stream |
-| `POST` | `/approve` | Resolve approval |
-| `POST` | `/query` | Smart Q&A with session context |
-| `GET` | `/health` | Health check |
-
-Rate limit: **5 POST requests per IP per 60 seconds** (configurable).
-
-## Project Structure
-
-```
-├── main.jac              # CLI + JacCloud entry (ScanRepo walker)
-├── jac.toml              # Project + serve + scale config
-├── server.py             # Flask mission control API
-├── orchestrator.py       # Multi-agent pipeline
-├── config.py             # Environment configuration
-├── agents/               # Jac walkers (graph_builder, security_scanner, …)
-├── nodes/                # Graph memory nodes
-├── utils/
-│   ├── llm_client.py     # Featherless → Gemini → OpenAI → heuristic
-│   ├── llm_fixer.py      # Unified diff patch generation
-│   ├── github_tools.py   # GitHub API + OSV (Jac scanner)
-│   ├── repo_cloner.py    # Dynamic git clone
-│   └── rate_limiter.py   # IP rate limiting
-├── frontend/             # Mission control UI
-└── outputs/              # JSON reports
-```
-
-## Demo Flow (Judges)
-
-1. Paste any public GitHub URL → agents activate with live SSE logs
-2. Dependency graph animates — **red nodes** mark vulnerable modules
-3. Security findings trigger FixAgent approval cards (approval mode)
-4. Approve a patch → unified diff appears
-5. Ask: *"Why is this vulnerable?"* → LLM answers from session context
-
-## License
-
-Hackathon prototype — MIT-friendly.
+| POST | `/analyze` | Start analysis |
+| GET | `/stream/:id` | SSE live stream |
+| POST | `/chat` | AI Q&A |
+| POST | `/approve_fix` | Approve patches |
