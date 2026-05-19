@@ -35,6 +35,11 @@
 
     <section class="panel stream-panel">
       <h2>Live Execution Stream</h2>
+      <div class="stream-status">
+        <div class="phase-pill" id="missionPhase">Preparing analysis</div>
+        <div class="connection-pill connecting" id="streamConnection">Disconnected</div>
+      </div>
+      <div class="agent-ticker" id="agentTicker">Waiting for agents to start...</div>
       <div id="logStream" class="log-stream" role="log" aria-live="polite"></div>
     </section>
 

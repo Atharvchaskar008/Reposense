@@ -34,11 +34,51 @@ app = Flask(__name__, static_folder=None)
 CORS(app, resources={r"/*": {"origins": "*"}})
 
 
+def _derive_phase(session: dict) -> str:
+    status = (session.get("status") or "").lower()
+    lifecycle = (session.get("lifecycle") or "").lower()
+    progress = session.get("progress", 0) or 0
+
+    if status == "completed":
+        return "Finalizing report"
+    if status == "failed":
+        return "Execution interrupted"
+    if lifecycle == "cloning":
+        return "Cloning repository"
+    if lifecycle == "analyzing" and progress < 55:
+        return "Analyzing architecture"
+    if lifecycle == "analyzing":
+        return "Running AI agents"
+    if lifecycle == "generating" and progress < 88:
+        return "Generating recommendations"
+    if lifecycle == "generating":
+        return "Finalizing report"
+    return "Preparing analysis"
+
+
+def _active_agents(session: dict) -> list[dict]:
+    active = []
+    for name, data in (session.get("agents") or {}).items():
+        state = data.get("state", "IDLE")
+        if state in ("RUNNING", "THINKING", "WAITING"):
+            active.append(
+                {
+                    "name": name,
+                    "state": state,
+                    "action": data.get("last_action", ""),
+                }
+            )
+    return active
+
+
 def _public_state(session: dict) -> dict:
     return {
         "status": session.get("status"),
         "lifecycle": session.get("lifecycle"),
         "progress": session.get("progress", 0),
+        "phase": _derive_phase(session),
+        "active_agents": _active_agents(session),
+        "log_count": len(session.get("logs", [])),
         "agents": session.get("agents"),
         "github": session.get("github"),
         "contributors": session.get("contributors"),
@@ -114,15 +154,26 @@ def get_session_route(session_id):
     session = snapshot.get_session(session_id)
     if not session:
         return jsonify({"error": "session not found"}), 404
-    return jsonify(session)
+    payload = dict(session)
+    payload["phase"] = _derive_phase(session)
+    payload["active_agents"] = _active_agents(session)
+    payload["log_count"] = len(session.get("logs", []))
+    return jsonify(payload)
 
 
 @app.route("/stream/<session_id>")
 def stream(session_id):
+    try:
+        start_from_log = max(0, int(request.args.get("from_log", "0")))
+    except ValueError:
+        start_from_log = 0
+
     def generate():
-        last_logs = 0
+        last_logs = start_from_log
         idle = 0
-        max_idle = 150
+        max_idle = 1200
+
+        yield "retry: 2000\n\n"
 
         while idle < max_idle:
             session = snapshot.get_session(session_id)
@@ -144,7 +195,8 @@ def stream(session_id):
                 return
 
             idle += 1
-            time.sleep(0.35)
+            yield ": keep-alive\n\n"
+            time.sleep(0.5)
 
     return Response(
         generate(),

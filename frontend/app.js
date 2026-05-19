@@ -14,8 +14,24 @@ const AGENTS = [
 
 let sessionId = null;
 let eventSource = null;
+let reconnectTimer = null;
+let reconnectAttempts = 0;
+let sessionFinished = false;
+let logCursor = 0;
+let latestState = null;
+let activePollTimer = null;
+const seenLogs = new Set();
 
 const $ = (id) => document.getElementById(id);
+
+const PHASE_LABELS = {
+  queued: "Preparing analysis",
+  cloning: "Cloning repository",
+  analyzing: "Analyzing architecture",
+  generating: "Running AI agents",
+  completed: "Finalizing report",
+  failed: "Execution interrupted",
+};
 
 function initAgents() {
   const grid = $("agentsGrid");
@@ -47,7 +63,8 @@ function updateAgents(agents) {
     const card = document.getElementById(`agent-${name}`);
     if (!card) return;
     const st = data.state || "IDLE";
-    card.className = `agent-card ${["RUNNING", "THINKING"].includes(st) ? "running" : ""}`;
+    card.className = `agent-card ${stateClass(st)}`;
+    if (["RUNNING", "THINKING"].includes(st)) card.classList.add("running");
     card.querySelector("[data-state]").textContent = st;
     card.querySelector("[data-action]").textContent = data.last_action || "-";
     card.querySelector("[data-dot]").className = `status-dot ${stateClass(st)}`;
@@ -55,12 +72,22 @@ function updateAgents(agents) {
 }
 
 function appendLog(entry) {
+  const key = `${entry.ts || ""}|${entry.agent || ""}|${entry.message || entry.display || ""}`;
+  if (seenLogs.has(key)) return;
+  seenLogs.add(key);
+  if (seenLogs.size > 500) {
+    const first = seenLogs.values().next().value;
+    seenLogs.delete(first);
+  }
   const stream = $("logStream");
   const line = document.createElement("div");
   const agent = entry.agent ? `[${entry.agent}] ` : "";
   line.className = `log-line ${entry.level || "info"}`;
   line.textContent = entry.display ? `> ${entry.display}` : `> ${agent}${entry.message}`;
   stream.appendChild(line);
+  while (stream.children.length > 180) {
+    stream.removeChild(stream.firstChild);
+  }
   stream.scrollTop = stream.scrollHeight;
 }
 
@@ -127,6 +154,68 @@ function updateIntel(summary, github, codeQuality, recommendations, maintainabil
   } else {
     $("intelRecs").innerHTML = `<li class="muted">Analysis completed with fallback data.</li>`;
   }
+}
+
+function setAnalyzeLoading(isLoading) {
+  const btn = $("analyzeBtn");
+  btn.disabled = isLoading;
+  btn.classList.toggle("is-loading", isLoading);
+  btn.innerHTML = isLoading
+    ? `<span class="btn-spinner" aria-hidden="true"></span><span>Executing...</span>`
+    : "Start Analysis";
+  document.body.classList.toggle("is-analyzing", isLoading);
+  document.querySelector(".stream-panel")?.classList.toggle("panel-live", isLoading);
+  document.querySelector(".agents-panel")?.classList.toggle("panel-live", isLoading);
+}
+
+function setConnectionStatus(status, label = "") {
+  const pill = $("streamConnection");
+  pill.className = `connection-pill ${status}`;
+  pill.textContent =
+    label ||
+    {
+      connecting: "Connecting stream",
+      connected: "Live stream active",
+      reconnecting: "Reconnecting stream",
+      error: "Stream interrupted",
+    }[status] ||
+      "Disconnected";
+}
+
+function derivePhase(data) {
+  if (!data) return PHASE_LABELS.queued;
+  if (data.phase) return data.phase;
+  const lifecycle = data.lifecycle || data.status || "queued";
+  if (lifecycle === "generating" && (data.progress || 0) >= 88) return "Finalizing report";
+  if (lifecycle === "generating") return "Generating recommendations";
+  if (lifecycle === "analyzing" && (data.progress || 0) >= 55) return "Running AI agents";
+  return PHASE_LABELS[lifecycle] || "Preparing analysis";
+}
+
+function updatePhase(data) {
+  $("missionPhase").textContent = derivePhase(data);
+}
+
+function updateAgentTicker(data) {
+  const ticker = $("agentTicker");
+  const activeAgents = data?.active_agents || [];
+  if (activeAgents.length) {
+    ticker.textContent = activeAgents
+      .map((agent) => `${agent.name}: ${agent.action || agent.state}`)
+      .join("  •  ");
+    ticker.classList.add("is-live");
+    return;
+  }
+
+  const status = data?.status || "queued";
+  if (status === "completed") {
+    ticker.textContent = "All agents finished. Report ready.";
+  } else if (status === "failed") {
+    ticker.textContent = "Agent execution interrupted. Showing latest available results.";
+  } else {
+    ticker.textContent = "Waiting for agents to start...";
+  }
+  ticker.classList.remove("is-live");
 }
 
 function renderApprovals(approvals) {
@@ -230,7 +319,13 @@ function renderGraph(graph) {
 
 function applyState(data) {
   if (!data) return;
+  latestState = data;
+  if (typeof data.log_count === "number") {
+    logCursor = Math.max(logCursor, data.log_count);
+  }
   updateAgents(data.agents);
+  updatePhase(data);
+  updateAgentTicker(data);
   updateIntel(
     data.summary,
     data.github,
@@ -241,17 +336,77 @@ function applyState(data) {
   renderApprovals(data.approvals);
   renderFixes(data.fixes);
   renderGraph(data.graph);
-  const btn = $("analyzeBtn");
-  if (data.progress) btn.textContent = `Executing ${data.progress}%`;
+  if (data.progress && data.status !== "completed" && data.status !== "failed") {
+    $("analyzeBtn").innerHTML =
+      `<span class="btn-spinner" aria-hidden="true"></span><span>Executing ${data.progress}%</span>`;
+  }
   if (data.status === "completed" || data.status === "failed") {
-    btn.textContent = "Start Analysis";
-    btn.disabled = false;
+    sessionFinished = true;
+    setAnalyzeLoading(false);
+    setConnectionStatus("connected", data.status === "completed" ? "Stream complete" : "Stream closed");
+    stopSessionPolling();
   }
 }
 
-function connectSSE() {
+async function pollSessionState() {
+  if (!sessionId) return;
+  try {
+    const res = await fetch(`${API}/session/${sessionId}`);
+    if (!res.ok) return;
+    const data = await res.json();
+    applyState(data);
+  } catch {}
+}
+
+function startSessionPolling() {
+  if (activePollTimer) return;
+  activePollTimer = setInterval(() => {
+    if (!sessionFinished) pollSessionState();
+  }, 2500);
+}
+
+function stopSessionPolling() {
+  if (!activePollTimer) return;
+  clearInterval(activePollTimer);
+  activePollTimer = null;
+}
+
+function scheduleReconnect() {
+  if (sessionFinished || reconnectTimer) return;
+  reconnectAttempts += 1;
+  const delay = Math.min(8000, 1200 * reconnectAttempts);
+  setConnectionStatus("reconnecting", `Reconnecting stream (${reconnectAttempts})`);
+  startSessionPolling();
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    pollSessionState();
+    connectSSE({ reconnect: true });
+  }, delay);
+}
+
+function connectSSE({ reconnect = false } = {}) {
   if (eventSource) eventSource.close();
-  eventSource = new EventSource(`${API}/stream/${sessionId}`);
+  if (!sessionId) return;
+  const url = `${API}/stream/${sessionId}?from_log=${logCursor}`;
+  setConnectionStatus(reconnect ? "reconnecting" : "connecting");
+  eventSource = new EventSource(url);
+
+  eventSource.onopen = () => {
+    reconnectAttempts = 0;
+    stopSessionPolling();
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+    setConnectionStatus("connected");
+    if (reconnect) {
+      appendLog({
+        message: "Live stream resumed",
+        level: "info",
+        agent: "MonitorAgent",
+      });
+    }
+  };
 
   eventSource.onmessage = (ev) => {
     let msg;
@@ -260,9 +415,13 @@ function connectSSE() {
     } catch {
       return;
     }
-    if (msg.type === "log" && msg.data) appendLog(msg.data);
+    if (msg.type === "log" && msg.data) {
+      logCursor += 1;
+      appendLog(msg.data);
+    }
     else if (msg.type === "state" && msg.data) applyState(msg.data);
     else if (msg.type === "done") {
+      sessionFinished = true;
       appendLog({
         message:
           msg.data?.status === "completed"
@@ -271,23 +430,29 @@ function connectSSE() {
         level: msg.data?.status === "completed" ? "info" : "error",
         agent: "MonitorAgent",
       });
-      $("analyzeBtn").disabled = false;
-      $("analyzeBtn").textContent = "Start Analysis";
+      setAnalyzeLoading(false);
+      setConnectionStatus("connected", "Stream complete");
       eventSource.close();
     } else if (msg.type === "error") {
       appendLog({ message: msg.data?.message || "Stream error", level: "error" });
-      $("analyzeBtn").disabled = false;
+      setConnectionStatus("error");
       eventSource.close();
+      scheduleReconnect();
     }
   };
 
   eventSource.onerror = () => {
-    appendLog({
-      message: "SSE connection lost. Run: python server.py and open http://localhost:8000",
-      level: "error",
-    });
-    $("analyzeBtn").disabled = false;
+    if (sessionFinished) {
+      setConnectionStatus("connected", "Stream complete");
+      return;
+    }
     eventSource.close();
+    appendLog({
+      message: "Live stream connection interrupted. Reconnecting...",
+      level: "warn",
+      agent: "MonitorAgent",
+    });
+    scheduleReconnect();
   };
 }
 
@@ -299,11 +464,23 @@ async function startAnalysis() {
     return;
   }
 
-  $("analyzeBtn").disabled = true;
-  $("analyzeBtn").textContent = "Executing...";
+  sessionFinished = false;
+  logCursor = 0;
+  reconnectAttempts = 0;
+  latestState = null;
+  seenLogs.clear();
+  stopSessionPolling();
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+  setAnalyzeLoading(true);
+  setConnectionStatus("connecting");
   $("logStream").innerHTML = "";
   lastGithubName = "";
   initAgents();
+  updatePhase({ lifecycle: "queued" });
+  updateAgentTicker({ status: "queued" });
   appendLog({ message: "Initializing graph-native mission control", agent: "MonitorAgent" });
 
   try {
@@ -323,8 +500,8 @@ async function startAnalysis() {
       message: `Backend unavailable: ${err.message}. Run: python server.py`,
       level: "error",
     });
-    $("analyzeBtn").disabled = false;
-    $("analyzeBtn").textContent = "Start Analysis";
+    setAnalyzeLoading(false);
+    setConnectionStatus("error");
   }
 }
 
