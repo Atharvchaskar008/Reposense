@@ -38,7 +38,8 @@ RepoSense separates tooling from reasoning:
 
 ## 🗺️ Workflow Architecture
 
-![Workflow](./assets/workflow.png)
+<img width="1561" height="686" alt="image" src="https://github.com/user-attachments/assets/47097a09-ded5-4bab-80cc-bdf78422e4c1" />
+
 
 *The workflow begins with a GitHub URL input. The system clones the repository, parses the AST to build a dependency graph, and then deploys Jac agents. The agents traverse the spatial graph, running LLM heuristics and static scans, eventually proposing fixes back to the UI.*
 
