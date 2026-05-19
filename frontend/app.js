@@ -95,16 +95,19 @@ function updateIntel(summary, github, codeQuality, recommendations, maintainabil
       : `Maintainability ${maintainability.grade} (${maintainability.score}/100)`;
   }
   if (summary && Object.keys(summary).length) {
-    $("intelType").textContent = summary.repo_type || "-";
-    $("intelArch").textContent = summary.architecture || "-";
-    const langs = summary.technologies || (github && github.languages) || [];
+    $("intelType").textContent = summary.repo_type || "General Software Project";
+    $("intelArch").textContent = summary.architecture_overview || summary.architecture || "-";
+    const langs = summary.tech_stack || summary.technologies || (github && github.languages) || [];
     $("intelTech").textContent = Array.isArray(langs) ? langs.join(", ") : langs;
-    $("intelComplexity").textContent = summary.complexity || "-";
+    const complexityText = summary.complexity_score
+      ? `${summary.complexity || "Unknown"} (${summary.complexity_score}/100)`
+      : summary.complexity || "-";
+    $("intelComplexity").textContent = complexityText;
     const risk = $("intelRisk");
     risk.textContent = summary.risk_level || "-";
     risk.className = `risk-badge ${(summary.risk_level || "").toLowerCase()}`;
     $("intelPurpose").textContent =
-      summary.purpose || summary.risk_summary || "Analysis complete.";
+      summary.repository_summary || summary.purpose || summary.risk_summary || "Analysis complete.";
   }
   if (codeQuality && Object.keys(codeQuality).length && !maintainability?.grade) {
     $("intelQuality").textContent = `${codeQuality.grade} (${codeQuality.score}/100)`;
@@ -113,6 +116,16 @@ function updateIntel(summary, github, codeQuality, recommendations, maintainabil
     $("intelRecs").innerHTML = recommendations
       .map((r) => `<li>${escapeHtml(r)}</li>`)
       .join("");
+  } else if (summary?.security_insights?.length || summary?.maintainability_analysis?.length) {
+    $("intelRecs").innerHTML = [
+      ...(summary.security_insights || []),
+      ...(summary.maintainability_analysis || []),
+    ]
+      .slice(0, 5)
+      .map((r) => `<li>${escapeHtml(r)}</li>`)
+      .join("");
+  } else {
+    $("intelRecs").innerHTML = `<li class="muted">Analysis completed with fallback data.</li>`;
   }
 }
 
