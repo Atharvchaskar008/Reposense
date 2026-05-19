@@ -105,6 +105,14 @@ function setSectionLoading(isLoading) {
   });
 }
 
+async function parseJsonResponse(res, fallback = {}) {
+  try {
+    return await res.json();
+  } catch {
+    return fallback;
+  }
+}
+
 function initAgents() {
   const grid = $("agentsGrid");
   grid.innerHTML = "";
@@ -488,15 +496,27 @@ async function handleApproval(btn) {
     await runQuery();
     return;
   }
-  await fetch(`${API}/approve_fix`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      session_id: sessionId,
-      approval_id: btn.dataset.id,
-      approved: act === "approve",
-    }),
-  });
+  try {
+    const res = await fetch(`${API}/approve_fix`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        session_id: sessionId,
+        approval_id: btn.dataset.id,
+        approved: act === "approve",
+      }),
+    });
+    const body = await parseJsonResponse(res, {});
+    if (!res.ok) {
+      throw new Error(asText(body.error, "Approval action failed"));
+    }
+  } catch (error) {
+    appendLog({
+      message: `Approval request failed: ${error.message}`,
+      level: "warn",
+      agent: "FixAgent",
+    });
+  }
 }
 
 function renderFixes(fixes) {
@@ -684,7 +704,7 @@ async function pollSessionState() {
   try {
     const res = await fetch(`${API}/session/${sessionId}`);
     if (!res.ok) return;
-    const data = await res.json();
+    const data = await parseJsonResponse(res, {});
     applyState(data);
   } catch (error) {
     appendLog({
@@ -835,7 +855,7 @@ async function startAnalysis() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ repo_url: repoUrl, execution_mode: mode }),
     });
-    const body = await res.json();
+    const body = await parseJsonResponse(res, {});
     if (!res.ok) throw new Error(body?.error || "Analysis failed to start");
 
     sessionId = body.session_id;
@@ -859,16 +879,20 @@ async function runQuery() {
     $("queryAnswer").textContent = "Start an analysis first.";
     return;
   }
+  $("queryAnswer").textContent = "Querying analysis context...";
+  $("queryAnswer").classList.add("loading");
   try {
     const res = await fetch(`${API}/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ session_id: sessionId, query: q, message: q }),
     });
-    const data = await res.json();
+    const data = await parseJsonResponse(res, {});
     $("queryAnswer").textContent = asText(data?.answer, "No answer.");
   } catch (error) {
     $("queryAnswer").textContent = `Query unavailable: ${error.message}`;
+  } finally {
+    $("queryAnswer").classList.remove("loading");
   }
 }
 

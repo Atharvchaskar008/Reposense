@@ -15,6 +15,7 @@ from pathlib import Path
 
 from flask import Flask, Response, jsonify, request, send_from_directory
 from flask_cors import CORS
+from werkzeug.exceptions import HTTPException
 
 from config import GEMINI_API_KEY, GITHUB_TOKEN, OPENAI_API_KEY, PORT
 from orchestrator import answer_query, resolve_approval, run_analysis
@@ -32,6 +33,18 @@ FRONTEND = BASE_DIR / "frontend"
 
 app = Flask(__name__, static_folder=None)
 CORS(app, resources={r"/*": {"origins": "*"}})
+
+
+@app.errorhandler(Exception)
+def handle_unexpected_error(exc):
+    if isinstance(exc, HTTPException):
+        response = exc.get_response()
+        response.data = json.dumps({"error": exc.description, "status": exc.code})
+        response.content_type = "application/json"
+        return response
+
+    log.exception("Unhandled server error")
+    return jsonify({"error": "Internal server error", "status": 500}), 500
 
 
 def _derive_phase(session: dict) -> str:
