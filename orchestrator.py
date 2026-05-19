@@ -50,9 +50,8 @@ def run_analysis(session_id: str, repo_url: str, execution_mode: str = "autonomo
             return
         repo_url = normalized or repo_url
 
-        snapshot.init_session(session_id, repo_url, execution_mode)
         _init_agents(session_id)
-        _log(session_id, "Mission control online — analysis queued", agent="MonitorAgent")
+        _log(session_id, "Mission control online - analysis queued", agent="MonitorAgent")
         _agent(session_id, "MonitorAgent", "RUNNING", "Orchestrating pipeline")
 
         # --- GitHub metadata ---
@@ -72,7 +71,7 @@ def run_analysis(session_id: str, repo_url: str, execution_mode: str = "autonomo
         else:
             _log(
                 session_id,
-                f"Repository {github.get('full_name')} — {github.get('stars', 0)} stars, "
+                f"Repository {github.get('full_name')} - {github.get('stars', 0)} stars, "
                 f"{github.get('forks', 0)} forks",
                 agent="DependencyAgent",
             )

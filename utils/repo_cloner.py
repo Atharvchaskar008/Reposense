@@ -20,7 +20,7 @@ def clone_repo(repo_url: str) -> dict:
     slug = _repo_slug(repo_url)
     target = REPOS_DIR / slug
 
-    if target.exists() and any(target.iterdir()):
+    if (target / ".git").exists():
         return {
             "success": True,
             "path": str(target),

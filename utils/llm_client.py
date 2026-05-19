@@ -38,6 +38,40 @@ def generate(prompt: str, system: str = "") -> tuple[str, str]:
     return _heuristic(prompt), "heuristic"
 
 
+def complete(
+    prompt: str,
+    system: str = "",
+    max_tokens: int = 2048,
+    temperature: float = 0.3,
+    force_llm: bool = False,
+) -> dict:
+    """
+    Backwards-compatible completion API used by existing helpers.
+
+    The current lightweight client does not vary output by max_tokens or
+    temperature, but keeps these parameters so older callers still work.
+    """
+    del max_tokens, temperature
+
+    if force_llm:
+        full_prompt = f"{system}\n\n{prompt}".strip() if system else prompt
+
+        if GEMINI_API_KEY:
+            text = _gemini(full_prompt)
+            if text:
+                return {"text": text, "source": "gemini"}
+
+        if OPENAI_API_KEY:
+            text = _openai(prompt, system)
+            if text:
+                return {"text": text, "source": "openai"}
+
+        return {"text": _heuristic(prompt), "source": "heuristic"}
+
+    text, provider = generate(prompt, system=system)
+    return {"text": text, "source": provider}
+
+
 def chat(session_context: str, question: str) -> tuple[str, str]:
     """Session-aware Q&A over analysis context."""
     prompt = (
