@@ -1,13 +1,16 @@
-"""GitHub REST API — stateless metadata fetch."""
+"""GitHub REST API - stateless metadata fetch."""
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any
 
 import requests
 
-from config import GITHUB_TOKEN
+from config import GITHUB_TIMEOUT_SEC, GITHUB_TOKEN
+
+log = logging.getLogger("reposense.github")
 
 _SESSION = requests.Session()
 if GITHUB_TOKEN:
@@ -31,8 +34,8 @@ def parse_github_url(url: str) -> tuple[str, str] | None:
     return None
 
 
-def _get(url: str, timeout: int = 25) -> Any:
-    r = _SESSION.get(url, timeout=timeout)
+def _get(url: str, timeout: int | None = None) -> Any:
+    r = _SESSION.get(url, timeout=timeout or GITHUB_TIMEOUT_SEC)
     r.raise_for_status()
     return r.json()
 
@@ -49,10 +52,15 @@ def fetch_full_github_intel(repo_url: str) -> dict:
 
     try:
         data = _get(base)
-    except requests.HTTPError as e:
-        return {"error": f"GitHub API {e.response.status_code}", "full_name": f"{owner}/{repo}"}
-    except Exception as e:
-        return {"error": str(e), "full_name": f"{owner}/{repo}"}
+    except requests.HTTPError as exc:
+        log.warning("GitHub API HTTP error for %s: %s", repo_url, exc)
+        return {"error": f"GitHub API {exc.response.status_code}", "full_name": f"{owner}/{repo}"}
+    except requests.RequestException as exc:
+        log.warning("GitHub API request failed for %s: %s", repo_url, exc)
+        return {"error": f"GitHub API unavailable: {exc}", "full_name": f"{owner}/{repo}"}
+    except Exception as exc:
+        log.exception("Unexpected GitHub API failure for %s", repo_url)
+        return {"error": str(exc), "full_name": f"{owner}/{repo}"}
 
     result.update(
         {
@@ -79,7 +87,8 @@ def fetch_full_github_intel(repo_url: str) -> dict:
         result["languages"] = sorted(langs.keys(), key=lambda k: langs[k], reverse=True)
         if not result.get("language") or result["language"] == "Unknown":
             result["language"] = result["languages"][0] if result["languages"] else "Unknown"
-    except Exception:
+    except Exception as exc:
+        log.info("GitHub languages fetch failed for %s: %s", repo_url, exc)
         result["languages"] = []
 
     try:
@@ -93,7 +102,8 @@ def fetch_full_github_intel(repo_url: str) -> dict:
             for c in contributors[:10]
         ]
         result["contributors_count"] = len(contributors)
-    except Exception:
+    except Exception as exc:
+        log.info("GitHub contributors fetch failed for %s: %s", repo_url, exc)
         result["contributors"] = []
         result["contributors_count"] = 0
 
@@ -108,7 +118,8 @@ def fetch_full_github_intel(repo_url: str) -> dict:
             }
             for c in commits
         ]
-    except Exception:
+    except Exception as exc:
+        log.info("GitHub commits fetch failed for %s: %s", repo_url, exc)
         result["recent_commits"] = []
 
     try:
@@ -117,14 +128,14 @@ def fetch_full_github_intel(repo_url: str) -> dict:
         result["pull_requests_sample"] = [
             {"title": p.get("title"), "number": p.get("number")} for p in prs[:5]
         ]
-    except Exception:
+    except Exception as exc:
+        log.info("GitHub pull requests fetch failed for %s: %s", repo_url, exc)
         result["open_pull_requests"] = 0
         result["pull_requests_sample"] = []
 
     return result
 
 
-# Backwards-compatible aliases
 def fetch_repo_metadata(repo_url: str) -> dict:
     return fetch_full_github_intel(repo_url)
 

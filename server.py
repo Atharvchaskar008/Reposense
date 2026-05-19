@@ -1,6 +1,6 @@
 """
-RepoSense production API — Flask + SSE + static frontend.
-JacCloud-ready: PORT env, dotenv, CORS, real analysis via orchestrator.
+RepoSense production API - Flask + SSE + static frontend.
+JacCloud-ready: PORT env, CORS, real analysis via orchestrator.
 """
 
 from __future__ import annotations
@@ -13,16 +13,13 @@ import time
 import uuid
 from pathlib import Path
 
-from dotenv import load_dotenv
 from flask import Flask, Response, jsonify, request, send_from_directory
 from flask_cors import CORS
 
-load_dotenv()
-
-from config import PORT  # noqa: E402
-from orchestrator import answer_query, resolve_approval, run_analysis  # noqa: E402
-from utils import snapshot  # noqa: E402
-from utils.repo_validate import validate_github_url  # noqa: E402
+from config import GEMINI_API_KEY, GITHUB_TOKEN, OPENAI_API_KEY, PORT
+from orchestrator import answer_query, resolve_approval, run_analysis
+from utils import snapshot
+from utils.repo_validate import validate_github_url
 
 logging.basicConfig(
     level=logging.INFO,
@@ -82,9 +79,9 @@ def health():
         {
             "status": "ok",
             "service": "RepoSense",
-            "gemini": bool(os.getenv("GEMINI_API_KEY")),
-            "openai": bool(os.getenv("OPENAI_API_KEY")),
-            "github_token": bool(os.getenv("GITHUB_TOKEN") or os.getenv("GITHUB_API_KEY")),
+            "gemini": bool(GEMINI_API_KEY),
+            "openai": bool(OPENAI_API_KEY),
+            "github_token": bool(GITHUB_TOKEN),
         }
     )
 
