@@ -126,6 +126,11 @@ def app_js():
     return send_from_directory(FRONTEND, "app.js")
 
 
+@app.route("/reposense-mark.svg")
+def reposense_mark():
+    return send_from_directory(FRONTEND, "reposense-mark.svg")
+
+
 @app.route("/health")
 def health():
     return jsonify(
