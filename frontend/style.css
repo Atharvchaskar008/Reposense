@@ -205,6 +205,60 @@ body.is-analyzing .panel {
   box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.12), 0 0 24px rgba(34, 211, 238, 0.08);
 }
 
+.panel.is-loading .intel-item strong,
+.panel.is-loading .intel-item p,
+.panel.is-loading .agent-card,
+.panel.is-loading .fix-card,
+.panel.is-loading .approval-card,
+.panel.is-loading .graph-svg,
+.panel.is-loading .log-stream {
+  position: relative;
+  overflow: hidden;
+}
+
+.panel.is-loading .intel-item strong,
+.panel.is-loading .intel-item p,
+.panel.is-loading .muted,
+.panel.is-loading .graph-svg,
+.panel.is-loading .log-stream,
+.panel.is-loading .fix-card,
+.panel.is-loading .approval-card,
+.panel.is-loading .agent-card {
+  color: transparent !important;
+}
+
+.panel.is-loading .intel-item strong::after,
+.panel.is-loading .intel-item p::after,
+.panel.is-loading .graph-svg::after,
+.panel.is-loading .log-stream::after,
+.panel.is-loading .fix-card::after,
+.panel.is-loading .approval-card::after,
+.panel.is-loading .agent-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(
+    90deg,
+    rgba(148, 163, 184, 0.08) 0%,
+    rgba(34, 211, 238, 0.18) 50%,
+    rgba(148, 163, 184, 0.08) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.3s linear infinite;
+}
+
+.panel.is-loading .intel-item strong::after,
+.panel.is-loading .intel-item p::after {
+  inset: auto 0 0;
+  height: 1em;
+}
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
 .panel h2 {
   font-size: 0.8rem;
   text-transform: uppercase;
