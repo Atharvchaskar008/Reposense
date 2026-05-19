@@ -251,6 +251,7 @@ function normalizeGraph(graph) {
       id: asText(node.id),
       path: asText(node.path, asText(node.id)),
       has_issue: !!node.has_issue,
+      imports: asNumber(toArray(node.imports, []).length, 0),
     }));
   const validIds = new Set(nodes.map((node) => node.id));
   const edges = toArray(safe.edges, [])
@@ -260,6 +261,43 @@ function normalizeGraph(graph) {
       target: asText(edge.target),
       type: asText(edge.type, "imports_edge"),
     }));
+  return { nodes, edges };
+}
+
+function buildFallbackGraph(data = latestState) {
+  const activeAgents = toArray(data?.active_agents, []).filter((agent) => isPlainObject(agent));
+  if (activeAgents.length) {
+    const nodes = activeAgents.map((agent, index) => ({
+      id: `agent.${index}.${asText(agent.name, "agent").toLowerCase()}`,
+      path: asText(agent.action || agent.state, "Working"),
+      has_issue: false,
+      active: true,
+    }));
+    const edges = nodes.slice(1).map((node, index) => ({
+      source: nodes[index].id,
+      target: node.id,
+      type: "agent_flow",
+    }));
+    return { nodes, edges };
+  }
+
+  const summary = normalizeSummary(data?.summary);
+  const stack = toArray(summary.tech_stack, ["Unknown"]).slice(0, 4);
+  const nodes = [
+    { id: "repo.core", path: summary.repo_type, has_issue: false, active: true },
+    { id: "repo.arch", path: summary.architecture_overview, has_issue: false, active: false },
+    ...stack.map((item, index) => ({
+      id: `repo.tech.${index}`,
+      path: item,
+      has_issue: false,
+      active: false,
+    })),
+  ];
+  const edges = nodes.slice(1).map((node) => ({
+    source: "repo.core",
+    target: node.id,
+    type: "fallback",
+  }));
   return { nodes, edges };
 }
 
@@ -485,49 +523,112 @@ function renderFixes(fixes) {
 function renderGraph(graph) {
   const svg = $("graphSvg");
   const safeGraph = normalizeGraph(graph);
-  const nodes = safeGraph.nodes;
-  const edges = safeGraph.edges;
+  const graphPayload = safeGraph.nodes.length ? safeGraph : buildFallbackGraph();
+  const nodes = toArray(graphPayload.nodes, []);
+  const edges = toArray(graphPayload.edges, []);
+  const activeAgentNames = new Set(
+    toArray(latestState?.active_agents, [])
+      .map((agent) => asText(agent.name, "").toLowerCase())
+      .filter(Boolean)
+  );
 
   if (!nodes.length) {
-    svg.innerHTML = `<text x="20" y="40" fill="#64748b" font-size="12">Task graph populates after dependency analysis</text>`;
+    svg.innerHTML = `
+      <rect x="0" y="0" width="600" height="280" rx="18" class="graph-backdrop"/>
+      <text x="24" y="40" class="graph-empty-title">AI orchestration canvas warming up</text>
+      <text x="24" y="62" class="graph-empty-copy">Repository topology will appear as soon as dependency analysis starts.</text>
+    `;
     return;
   }
 
   const width = 600;
-  const height = 320;
+  const height = 280;
   const centerX = width / 2;
   const centerY = height / 2;
-  const radius = Math.min(width, height) * 0.38;
+  const radius = Math.min(width, height) * 0.34;
   const positions = {};
-  const visibleNodes = nodes.slice(0, 24);
+  const visibleNodes = nodes.slice(0, 18);
+
+  const defs = `
+    <defs>
+      <linearGradient id="graphEdgeGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+        <stop offset="0%" stop-color="rgba(38,38,38,0.45)"/>
+        <stop offset="50%" stop-color="rgba(237,237,237,0.32)"/>
+        <stop offset="100%" stop-color="rgba(38,38,38,0.45)"/>
+      </linearGradient>
+      <filter id="graphNodeGlow" x="-60%" y="-60%" width="220%" height="220%">
+        <feDropShadow dx="0" dy="0" stdDeviation="6" flood-color="rgba(78,168,255,0.22)"/>
+      </filter>
+      <filter id="graphNodePurpleGlow" x="-60%" y="-60%" width="220%" height="220%">
+        <feDropShadow dx="0" dy="0" stdDeviation="6" flood-color="rgba(164,123,255,0.2)"/>
+      </filter>
+    </defs>
+  `;
 
   visibleNodes.forEach((node, index) => {
-    const angle = (index / Math.max(visibleNodes.length, 1)) * Math.PI * 2;
+    const angleOffset = visibleNodes.length % 2 === 0 ? Math.PI / 18 : 0;
+    const angle = (index / Math.max(visibleNodes.length, 1)) * Math.PI * 2 - Math.PI / 2 + angleOffset;
+    const depth = 1 + ((index % 3) * 0.06);
     positions[node.id] = {
-      x: centerX + radius * Math.cos(angle),
+      x: centerX + radius * depth * Math.cos(angle),
       y: centerY + radius * Math.sin(angle),
-      has_issue: node.has_issue,
+      has_issue: !!node.has_issue,
+      active:
+        !!node.active ||
+        activeAgentNames.has(idToAgentName(node.id)) ||
+        activeAgentNames.has(asText(node.path, "").toLowerCase()),
+      path: node.path,
     };
   });
 
   const edgeSvg = edges
-    .slice(0, 40)
+    .slice(0, 30)
     .map((edge) => {
       const source = positions[edge.source];
       const target = positions[edge.target];
       if (!source || !target) return "";
-      return `<line class="graph-edge" x1="${source.x}" y1="${source.y}" x2="${target.x}" y2="${target.y}"/>`;
+      return `
+        <line class="graph-edge" x1="${source.x}" y1="${source.y}" x2="${target.x}" y2="${target.y}"/>
+        <line class="graph-edge graph-edge-animated" x1="${source.x}" y1="${source.y}" x2="${target.x}" y2="${target.y}"/>
+      `;
     })
     .join("");
 
   const nodeSvg = Object.entries(positions)
     .map(([id, point]) => {
-      const label = id.split(".").pop().slice(0, 10);
-      return `<circle class="graph-node ${point.has_issue ? "issue" : ""}" cx="${point.x}" cy="${point.y}" r="14"/><text class="graph-label" x="${point.x}" y="${point.y + 24}" text-anchor="middle">${escapeHtml(label)}</text>`;
+      const primary = id.split(".").pop().slice(0, 12);
+      const secondary = asText(point.path, "").split("/").pop().split(".").slice(-1)[0].slice(0, 16);
+      const nodeClass = [
+        "graph-node-card",
+        point.has_issue ? "issue" : "",
+        point.active ? "active" : "",
+      ]
+        .filter(Boolean)
+        .join(" ");
+      return `
+        <g class="graph-node-group ${point.active ? "active" : ""}" transform="translate(${point.x}, ${point.y})">
+          <rect class="${nodeClass}" x="-56" y="-20" width="112" height="40" rx="12"/>
+          <text class="graph-label" x="0" y="-2" text-anchor="middle">${escapeHtml(primary)}</text>
+          <text class="graph-sub-label" x="0" y="12" text-anchor="middle">${escapeHtml(secondary || "module")}</text>
+        </g>
+      `;
     })
     .join("");
 
-  svg.innerHTML = edgeSvg + nodeSvg;
+  svg.innerHTML = `
+    ${defs}
+    <rect x="0" y="0" width="600" height="280" rx="18" class="graph-backdrop"/>
+    ${edgeSvg}
+    ${nodeSvg}
+  `;
+}
+
+function idToAgentName(id) {
+  return asText(id, "")
+    .split(".")
+    .pop()
+    .replace(/[_-]/g, " ")
+    .toLowerCase();
 }
 
 function applyState(data) {
