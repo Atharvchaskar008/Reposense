@@ -185,16 +185,7 @@ Please ensure your code passes standard linting (`flake8` / `black`) and doesn't
 - [ ] **Custom Agent Modules:** Allow users to define their own Jac agents and plug them into the swarm.
 - [ ] **CI/CD Integration:** Package RepoSense as a GitHub Action.
 - [ ] **Vector Memory:** Integrate Pinecone or ChromaDB for long-term project memory across multiple analysis runs.
-
-## 📸 Screenshots
-
-*(Placeholder for future screenshots)*
-
-![Dashboard View](./assets/screenshot-1.png)
-*Mission Control Live Dashboard*
-
-![Graph View](./assets/screenshot-2.png)
-*Dependency Graph Visualization*
+n*
 
 ## 📜 License
 
